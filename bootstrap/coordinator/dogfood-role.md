@@ -42,6 +42,10 @@ the operator.
 - **Branch base.** PRs target `main`. The "branch from
   `origin/development`" rule that applies across the Rails repos
   does not apply here -- spore has no `development` branch.
+- **Edit-scope exemption.** The shared role's "No source edits --
+  route to a worker" rule does NOT apply on spore. The coordinator
+  makes small config/docs commits itself and routes larger changes
+  to workers. Operator granted 2026-07-03.
 
 ## Test / lint commands
 
