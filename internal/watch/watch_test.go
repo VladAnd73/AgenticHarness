@@ -2,6 +2,8 @@ package watch
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -160,5 +162,101 @@ esac`)
 	}
 	if rep.Alerts != 0 || len(*tells) != 0 {
 		t.Fatal("non-matching check must not alert")
+	}
+}
+
+// twoFailingChecksScript returns one PR with two matching failing e2e checks.
+const twoFailingChecksScript = `
+case "$2" in
+list) echo '[{"number":5,"headRefName":"feat-z","headRefOid":"sha9","isDraft":false,"url":"https://github.com/o/r/pull/5"}]' ;;
+checks) echo '[{"name":"e2e / Regression (3)","bucket":"fail","link":"https://github.com/o/r/actions/runs/30/job/3"},{"name":"e2e / Regression (7)","bucket":"fail","link":"https://github.com/o/r/actions/runs/30/job/7"}]'; exit 8 ;;
+esac`
+
+func TestRunRollsUpChecksPerPR(t *testing.T) {
+	root, tells, tell := setupRun(t, twoFailingChecksScript)
+	rep, err := Run(root, "proj", false, tell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two matching checks on one PR must produce exactly ONE tell.
+	if rep.Alerts != 1 || len(*tells) != 1 {
+		t.Fatalf("want 1 alert for 2 checks, got %+v / %d tells", rep, len(*tells))
+	}
+	msg := (*tells)[0].msg
+	for _, want := range []string{"PR #5", "feat-z", "2 failing", "Regression (3)", "Regression (7)", "runs/30"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("msg missing %q:\n%s", want, msg)
+		}
+	}
+	// Second round must be silent; both keys are now seen.
+	rep2, err := Run(root, "proj", false, tell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.Alerts != 0 || rep2.Skipped != 2 {
+		t.Fatalf("second round: want 0 alerts 2 skipped, got %+v", rep2)
+	}
+	if len(*tells) != 1 {
+		t.Fatal("second round must not send another tell")
+	}
+}
+
+// counterFile is used by TestRunNewCheckOnAlertedPRTriggersRollup to simulate
+// a PR that gains a second failing check on the second polling round.
+func TestRunNewCheckOnAlertedPRTriggersRollup(t *testing.T) {
+	// The fake gh script reads a counter file to decide which checks to return.
+	// Round 1 (counter==0): one check. Round 2+ (counter>=1): two checks.
+	counterFile := filepath.Join(t.TempDir(), "counter")
+	if err := os.WriteFile(counterFile, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+case "$2" in
+list) echo '[{"number":3,"headRefName":"inc","headRefOid":"shaX","isDraft":false,"url":"https://github.com/o/r/pull/3"}]' ;;
+checks)
+  n=$(cat ` + counterFile + `)
+  echo $((n+1)) > ` + counterFile + `
+  if [ "$n" -eq 0 ]; then
+    echo '[{"name":"e2e-login","bucket":"fail","link":"https://ci/runs/1/job/1"}]'
+  else
+    echo '[{"name":"e2e-login","bucket":"fail","link":"https://ci/runs/1/job/1"},{"name":"e2e-dashboard","bucket":"fail","link":"https://ci/runs/1/job/2"}]'
+  fi
+  exit 8 ;;
+esac`
+	root, _, _ := setupRun(t, script)
+
+	var got1 []told
+	rep1, err := Run(root, "proj", false, func(slug, msg string) error {
+		got1 = append(got1, told{slug, msg})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep1.Alerts != 1 || len(got1) != 1 {
+		t.Fatalf("round 1: want 1 alert, got %+v / %d tells", rep1, len(got1))
+	}
+	if !strings.Contains(got1[0].msg, "e2e-login") {
+		t.Fatalf("round 1: msg missing e2e-login:\n%s", got1[0].msg)
+	}
+
+	// Round 2: e2e-dashboard is new; e2e-login is already seen.
+	// Expect one tell listing only the new check.
+	var got2 []told
+	rep2, err := Run(root, "proj", false, func(slug, msg string) error {
+		got2 = append(got2, told{slug, msg})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.Alerts != 1 || len(got2) != 1 {
+		t.Fatalf("round 2: want 1 alert for new check, got %+v / %d tells", rep2, len(got2))
+	}
+	if !strings.Contains(got2[0].msg, "e2e-dashboard") {
+		t.Fatalf("round 2: msg missing e2e-dashboard:\n%s", got2[0].msg)
+	}
+	if strings.Contains(got2[0].msg, "e2e-login") {
+		t.Fatalf("round 2: must not re-alert already-seen e2e-login:\n%s", got2[0].msg)
 	}
 }

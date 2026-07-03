@@ -17,6 +17,12 @@ const runbook = `Runbook (per approved spec docs/todo/pr-e2e-watcher.md in the s
 4. Local FAIL -> escalate to operator in your terminal with the worker's findings. Do not retry.
 Max ONE CI retry per commit. Escalate instead of looping.`
 
+// prAlert holds a rollup tell for one PR.
+type prAlert struct {
+	keys []string
+	msg  string
+}
+
 func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) error) (Report, error) {
 	var rep Report
 	cfg, err := LoadConfig(project)
@@ -32,11 +38,7 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		return rep, noteFailure(st, tell, err)
 	}
 	live := map[string]bool{}
-	type alert struct {
-		key string
-		msg string
-	}
-	var alerts []alert
+	var alerts []prAlert
 	for _, pr := range prs {
 		if pr.IsDraft {
 			continue
@@ -45,6 +47,8 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		if err != nil {
 			return rep, noteFailure(st, tell, err)
 		}
+		var newKeys []string
+		var lines []string
 		for _, c := range checks {
 			if !nameMatches(c.Name, cfg.Checks) {
 				continue
@@ -55,11 +59,18 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 				rep.Skipped++
 				continue
 			}
-			msg := fmt.Sprintf(
-				"pr-watch: PR #%d (%s) has failing check %q\nrun: %s\npr: %s\n\n%s",
-				pr.Number, pr.Branch, c.Name, c.Link, pr.URL, runbook)
-			alerts = append(alerts, alert{k, msg})
+			newKeys = append(newKeys, k)
+			lines = append(lines, fmt.Sprintf("  %s\n  run: %s", c.Name, c.Link))
 		}
+		if len(newKeys) == 0 {
+			continue
+		}
+		msg := fmt.Sprintf(
+			"pr-watch: PR #%d (%s) has %d failing e2e check(s)\n%s\npr: %s\n\n%s",
+			pr.Number, pr.Branch, len(newKeys),
+			strings.Join(lines, "\n"),
+			pr.URL, runbook)
+		alerts = append(alerts, prAlert{newKeys, msg})
 	}
 	if dryRun {
 		rep.Alerts = len(alerts)
@@ -67,15 +78,12 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 	}
 	for _, a := range alerts {
 		if err := tell("coordinator", a.msg); err != nil {
-			// Persist keys already marked before returning so they are not
-			// re-delivered next round (at-least-once: prefer duplicate-free
-			// over lost, but never drop a successfully delivered alert).
 			_ = st.Save()
 			return rep, err
 		}
-		st.MarkKey(a.key)
-		// Save after each successful tell so a crash mid-batch does not
-		// replay already-delivered alerts.
+		for _, k := range a.keys {
+			st.MarkKey(k)
+		}
 		if err := st.Save(); err != nil {
 			return rep, err
 		}
