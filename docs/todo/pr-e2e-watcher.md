@@ -64,12 +64,13 @@ checks = ["cypress", "playwright", "e2e"]
 Host-side rather than in-repo: which repos this host watches is a
 host decision, and enabling a repo must not require pushing to it.
 
-### Seen-state (dedup + retry cap)
+### Seen-state (reporting dedup)
 
 `~/.local/state/spore/<project>/pr-watch.json`. Keyed by
-`PR number + head SHA + check name`, value records when it was
-reported and whether a retry was already spent. A new push (new
-head SHA) naturally resets the cycle. One retry per key, ever.
+`PR number + head SHA + check name`; pure reporting dedup. A new
+push (new head SHA) naturally resets the cycle. The retry-once cap
+is enforced by the coordinator runbook carried in each alert (the
+coordinator triggers the rerun and watches its outcome in-session).
 Entries for closed/merged PRs are pruned on each run.
 
 ### Coordinator response (runbook)
@@ -81,9 +82,9 @@ On a watcher message, the project coordinator:
    existing running-/investigating-e2e skills).
 2. Worker reports the local result back (`spore task tell`).
 3. Local pass -> coordinator retries all failed CI jobs
-   (`gh run rerun <run-id> --failed`) and marks the retry spent
-   in seen-state. CI green afterwards -> done, no operator noise.
-   CI red again -> escalate.
+   (`gh run rerun <run-id> --failed`) and watches the rerun
+   outcome in-session. CI green afterwards -> done, no operator
+   noise. CI red again -> escalate; never a second retry.
 4. Local fail -> escalate: surface PR, failing spec, worker's
    findings, and a recommended next step in the coordinator's
    terminal. Wait for operator guidance.
