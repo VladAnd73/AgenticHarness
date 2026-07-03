@@ -72,12 +72,28 @@ func (s *State) Prune(liveKeys map[string]bool) {
 }
 
 func (s *State) Save() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, b, 0o644)
+	// Write to a temp file in the same directory, then rename atomically so a
+	// crash mid-write cannot corrupt the live state file.
+	tmp, err := os.CreateTemp(dir, ".pr-watch-*.json")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), s.path)
 }

@@ -67,9 +67,18 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 	}
 	for _, a := range alerts {
 		if err := tell("coordinator", a.msg); err != nil {
+			// Persist keys already marked before returning so they are not
+			// re-delivered next round (at-least-once: prefer duplicate-free
+			// over lost, but never drop a successfully delivered alert).
+			_ = st.Save()
 			return rep, err
 		}
 		st.MarkKey(a.key)
+		// Save after each successful tell so a crash mid-batch does not
+		// replay already-delivered alerts.
+		if err := st.Save(); err != nil {
+			return rep, err
+		}
 		rep.Alerts++
 	}
 	st.Prune(live)
@@ -89,12 +98,14 @@ func nameMatches(name string, patterns []string) bool {
 
 func noteFailure(st *State, tell func(string, string) error, cause error) error {
 	st.Failures++
+	// Save the incremented counter before telling: if Save fails the tell is
+	// suppressed (silent gap) rather than firing again next round (duplicate).
+	if err := st.Save(); err != nil {
+		return err
+	}
 	if st.Failures == 3 {
 		_ = tell("coordinator",
 			fmt.Sprintf("pr-watch: unhealthy, 3 consecutive polling failures. Last error: %v", cause))
-	}
-	if err := st.Save(); err != nil {
-		return err
 	}
 	return cause
 }
