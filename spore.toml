@@ -5,3 +5,8 @@
 # consumers and must stay canonical. The dogfood file carries the
 # project-specific deltas for spore-as-a-project.
 brief = "bootstrap/coordinator/dogfood-role.md"
+
+# Pin the coordinator to Claude Fable 5 (released 2026-06-09). Injected
+# as SPORE_COORDINATOR_MODEL at spawn; the launch shim passes it to
+# claude as --model. An env-set SPORE_COORDINATOR_MODEL still overrides.
+model = "claude-fable-5"
