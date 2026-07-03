@@ -53,3 +53,22 @@ checks = ["cypress", "playwright", "e2e"]
 		}
 	}
 }
+
+func TestLoadConfigPreservesHashInQuotedValue(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeWatchToml(t, dir, "proj", `
+enabled = true
+checks = ["e2e#smoke"] # comment with hash
+`)
+	cfg, err := LoadConfig("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Checks) != 1 {
+		t.Fatalf("checks = %v, want 1 element", cfg.Checks)
+	}
+	if cfg.Checks[0] != "e2e#smoke" {
+		t.Fatalf("checks[0] = %q, want %q", cfg.Checks[0], "e2e#smoke")
+	}
+}

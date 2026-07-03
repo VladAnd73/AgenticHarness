@@ -1,6 +1,8 @@
 package watch
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,17 +20,14 @@ func LoadConfig(project string) (Config, error) {
 	}
 	b, err := os.ReadFile(filepath.Join(base, "spore", project, "watch.toml"))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return Config{}, nil
 		}
 		return Config{}, err
 	}
 	var cfg Config
 	for _, line := range strings.Split(string(b), "\n") {
-		if i := strings.Index(line, "#"); i >= 0 {
-			line = line[:i]
-		}
-		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(stripTOMLComment(line))
 		eq := strings.Index(line, "=")
 		if eq < 0 {
 			continue
@@ -55,4 +54,22 @@ func parseStringList(val string) []string {
 		}
 	}
 	return out
+}
+
+func stripTOMLComment(line string) string {
+	inQuote := byte(0)
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		switch {
+		case inQuote != 0:
+			if ch == inQuote {
+				inQuote = 0
+			}
+		case ch == '"' || ch == '\'':
+			inQuote = ch
+		case ch == '#':
+			return line[:i]
+		}
+	}
+	return line
 }
