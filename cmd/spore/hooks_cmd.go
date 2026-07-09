@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/versality/spore/internal/hooks"
+	"github.com/versality/spore/internal/task"
 )
 
 func runHooks(args []string) int {
@@ -168,15 +169,15 @@ func runHooksWatchInbox(args []string) int {
 	var err error
 	switch len(args) {
 	case 0:
-		inbox := os.Getenv("SPORE_TASK_INBOX")
-		if inbox == "" {
+		dirs := watchInboxDirsFromEnv()
+		if len(dirs) == 0 {
 			// Host-level Stop hooks fire in every claude session,
 			// including non-spore ones. No slug and no inbox env
 			// means there is nothing to watch; exit silently so
 			// the hook produces no stderr noise.
 			return 0
 		}
-		err = hooks.WatchInboxAt(inbox)
+		err = hooks.WatchInboxAtDirs(dirs)
 	case 1:
 		err = hooks.WatchInbox(args[0])
 	default:
@@ -191,6 +192,29 @@ func runHooksWatchInbox(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// watchInboxDirsFromEnv resolves the inbox dirs the Stop-hook watcher
+// should watch, from the env the harness sets per spawn. Returns nil when
+// SPORE_TASK_INBOX is unset (non-spore host session -> no-op). For a
+// coordinator ($SPORE_TASK_SLUG == "coordinator"), $SPORE_TASK_INBOX is
+// the poke channel; the coordinator's message inbox (where worker/CLI
+// `spore task tell coordinator` lands) is a different tree, so append it
+// too. Any other slug is a worker whose $SPORE_TASK_INBOX already IS its
+// message inbox, so it stays single-dir.
+func watchInboxDirsFromEnv() []string {
+	inbox := os.Getenv("SPORE_TASK_INBOX")
+	if inbox == "" {
+		return nil
+	}
+	dirs := []string{inbox}
+	if os.Getenv("SPORE_TASK_SLUG") == "coordinator" {
+		msg, err := task.InboxDirForProject(os.Getenv("SPORE_PROJECT_ROOT"), "coordinator")
+		if err == nil && msg != inbox {
+			dirs = append(dirs, msg)
+		}
+	}
+	return dirs
 }
 
 func runHooksNotifyCoordinator(args []string) int {

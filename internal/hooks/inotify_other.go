@@ -4,6 +4,6 @@ package hooks
 
 import "errors"
 
-func initPlatformWatcher(dir string) (inboxWaiter, error) {
+func initPlatformWatcher(dirs []string) (inboxWaiter, error) {
 	return nil, errors.New("inotify only supported on linux")
 }
