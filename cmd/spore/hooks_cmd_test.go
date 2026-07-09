@@ -32,6 +32,61 @@ func TestHooksNotifyCoordinatorNoArgsUsesEnv(t *testing.T) {
 	}
 }
 
+func TestWatchInboxDirsFromEnv_NoInboxNil(t *testing.T) {
+	t.Setenv("SPORE_TASK_INBOX", "")
+	t.Setenv("SPORE_TASK_SLUG", "coordinator")
+	if dirs := watchInboxDirsFromEnv(); dirs != nil {
+		t.Fatalf("got %v, want nil when SPORE_TASK_INBOX unset", dirs)
+	}
+}
+
+func TestWatchInboxDirsFromEnv_WorkerSingleDir(t *testing.T) {
+	inbox := filepath.Join(t.TempDir(), "worker", "inbox")
+	t.Setenv("SPORE_TASK_INBOX", inbox)
+	t.Setenv("SPORE_TASK_SLUG", "rower-x")
+	dirs := watchInboxDirsFromEnv()
+	if len(dirs) != 1 || dirs[0] != inbox {
+		t.Fatalf("worker got %v, want single [%s]", dirs, inbox)
+	}
+}
+
+func TestWatchInboxDirsFromEnv_CoordinatorAddsMessageInbox(t *testing.T) {
+	state := t.TempDir()
+	root := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("SPORE_PROJECT_ROOT", root)
+	poke := filepath.Join(t.TempDir(), "coordinator", "spore", "inbox")
+	t.Setenv("SPORE_TASK_INBOX", poke)
+	t.Setenv("SPORE_TASK_SLUG", "coordinator")
+
+	dirs := watchInboxDirsFromEnv()
+	wantMsg := filepath.Join(state, "spore", "proj", "coordinator", "inbox")
+	if len(dirs) != 2 || dirs[0] != poke || dirs[1] != wantMsg {
+		t.Fatalf("coordinator got %v, want [%s %s]", dirs, poke, wantMsg)
+	}
+}
+
+func TestWatchInboxDirsFromEnv_CoordinatorDedupWhenEqual(t *testing.T) {
+	state := t.TempDir()
+	root := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("SPORE_PROJECT_ROOT", root)
+	msg := filepath.Join(state, "spore", "proj", "coordinator", "inbox")
+	t.Setenv("SPORE_TASK_INBOX", msg)
+	t.Setenv("SPORE_TASK_SLUG", "coordinator")
+
+	dirs := watchInboxDirsFromEnv()
+	if len(dirs) != 1 || dirs[0] != msg {
+		t.Fatalf("dedup got %v, want single [%s]", dirs, msg)
+	}
+}
+
 func TestHooksWatchInboxNoArgsNoEnvSilentNoOp(t *testing.T) {
 	t.Setenv("SPORE_TASK_INBOX", "")
 

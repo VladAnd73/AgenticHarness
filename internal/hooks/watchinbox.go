@@ -35,10 +35,20 @@ func WatchInboxAt(inboxDir string) error {
 	return watchInboxAt(inboxDir, os.Stdout, os.Stderr, defaultWatchOpts())
 }
 
+// WatchInboxAtDirs is the multi-dir env-driven Stop-hook entry point. A
+// wake fires when a .json arrives in ANY of inboxDirs; on wake every dir
+// is drained (each keeps its own read/ subdir). Coordinators pass two
+// dirs: the poke channel ($SPORE_TASK_INBOX) and their message inbox
+// (task.InboxDir("coordinator")), so both worker/CLI tells and
+// interactive-session pokes wake an idle coordinator.
+func WatchInboxAtDirs(inboxDirs []string) error {
+	return watchInboxAtDirs(inboxDirs, os.Stdout, os.Stderr, defaultWatchOpts())
+}
+
 type watchOpts struct {
 	timeout     time.Duration
 	settle      time.Duration
-	initWatcher func(dir string) (inboxWaiter, error)
+	initWatcher func(dirs []string) (inboxWaiter, error)
 	sleep       func(time.Duration)
 }
 
@@ -63,22 +73,28 @@ func watchInbox(slug string, stdout, stderr io.Writer, opts watchOpts) error {
 }
 
 func watchInboxAt(inboxDir string, stdout, stderr io.Writer, opts watchOpts) error {
-	if err := ensureInbox(inboxDir); err != nil {
-		return err
+	return watchInboxAtDirs([]string{inboxDir}, stdout, stderr, opts)
+}
+
+func watchInboxAtDirs(inboxDirs []string, stdout, stderr io.Writer, opts watchOpts) error {
+	for _, dir := range inboxDirs {
+		if err := ensureInbox(dir); err != nil {
+			return err
+		}
 	}
 
-	if n, err := drainInbox(inboxDir, stdout); err != nil {
+	if n, err := drainAll(inboxDirs, stdout); err != nil {
 		return err
 	} else if n > 0 {
 		return ErrWake
 	}
 
-	w, werr := opts.initWatcher(inboxDir)
+	w, werr := opts.initWatcher(inboxDirs)
 	if werr != nil || w == nil {
 		fmt.Fprintf(stderr, "watch-inbox: inotifywait unavailable; sleeping %ds\n",
 			int(opts.timeout.Seconds()))
 		opts.sleep(opts.timeout)
-		if n, err := drainInbox(inboxDir, stdout); err != nil {
+		if n, err := drainAll(inboxDirs, stdout); err != nil {
 			return err
 		} else if n > 0 {
 			return ErrWake
@@ -92,12 +108,26 @@ func watchInboxAt(inboxDir string, stdout, stderr io.Writer, opts watchOpts) err
 		opts.sleep(opts.settle)
 	}
 
-	if n, err := drainInbox(inboxDir, stdout); err != nil {
+	if n, err := drainAll(inboxDirs, stdout); err != nil {
 		return err
 	} else if n > 0 {
 		return ErrWake
 	}
 	return nil
+}
+
+// drainAll drains each dir in turn (each keeps its own read/ subdir) and
+// returns the total number of files claimed across all of them.
+func drainAll(inboxDirs []string, stdout io.Writer) (int, error) {
+	total := 0
+	for _, dir := range inboxDirs {
+		n, err := drainInbox(dir, stdout)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
 }
 
 // drainInbox lists *.json at the top level of inboxDir, atomically

@@ -6,14 +6,16 @@ import (
 	"syscall"
 )
 
-func initPlatformWatcher(dir string) (inboxWaiter, error) {
+func initPlatformWatcher(dirs []string) (inboxWaiter, error) {
 	inFd, err := syscall.InotifyInit1(syscall.IN_CLOEXEC)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := syscall.InotifyAddWatch(inFd, dir, syscall.IN_CREATE|syscall.IN_MOVED_TO); err != nil {
-		_ = syscall.Close(inFd)
-		return nil, err
+	for _, dir := range dirs {
+		if _, err := syscall.InotifyAddWatch(inFd, dir, syscall.IN_CREATE|syscall.IN_MOVED_TO); err != nil {
+			_ = syscall.Close(inFd)
+			return nil, err
+		}
 	}
 	epFd, err := syscall.EpollCreate1(syscall.EPOLL_CLOEXEC)
 	if err != nil {
