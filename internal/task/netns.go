@@ -25,7 +25,16 @@ const netnsBinary = "pasta"
 // uid-0 is only a userns mapping to the unprivileged spore user, so no
 // real privilege is gained. The env injection is tied to isolation and
 // never applied when isolate_network is off.
-const netnsWrapPrefix = netnsBinary + " --config-net -- env IS_SANDBOX=1 "
+//
+// -T none -U none -t none -u none disable pasta's default `auto` port
+// forwarding in BOTH directions: -T/-U (namespace->host, "to init") and
+// -t/-u (host->namespace). Without them, any port a worker binds inside
+// its netns is auto-forwarded to the host, so two isolated workers on the
+// same port (e.g. :3000) collide host-side nondeterministically. `none`
+// keeps host ports free. Outbound NAT (internet + DNS) rides pasta's tap
+// interface and copied routes, independent of these flags, so isolation
+// and internet both keep working. Flags precede `--` (pasta args).
+const netnsWrapPrefix = netnsBinary + " --config-net -T none -U none -t none -u none -- env IS_SANDBOX=1 "
 
 // lookPath is exec.LookPath, indirected so tests can stub binary
 // discovery without touching the real PATH.
