@@ -18,8 +18,14 @@ const netnsBinary = "pasta"
 
 // netnsWrapPrefix is prepended to the resolved worker command when
 // [worker] isolate_network is on. Everything after `--` is the command
-// pasta execs inside the namespace.
-const netnsWrapPrefix = netnsBinary + " --config-net -- "
+// pasta execs inside the namespace. `pasta --config-net` maps the worker
+// to uid 0 in a user namespace; claude refuses to run as root, so we
+// inject its sandbox-bypass env via coreutils `env` (on the netns PATH).
+// This is legitimate: the worker IS sandboxed in its own netns and the
+// uid-0 is only a userns mapping to the unprivileged spore user, so no
+// real privilege is gained. The env injection is tied to isolation and
+// never applied when isolate_network is off.
+const netnsWrapPrefix = netnsBinary + " --config-net -- env IS_SANDBOX=1 "
 
 // lookPath is exec.LookPath, indirected so tests can stub binary
 // discovery without touching the real PATH.

@@ -50,7 +50,9 @@ func TestWorkerSpawnCommandIsolationOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "pasta --config-net -- sleep 30"
+	// Isolation on injects the sandbox-bypass env through the same seam so
+	// claude survives pasta's uid-0 userns mapping.
+	want := "pasta --config-net -- env IS_SANDBOX=1 sleep 30"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

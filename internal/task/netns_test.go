@@ -22,6 +22,11 @@ func TestWrapForIsolationOff(t *testing.T) {
 	if got != "claude" {
 		t.Fatalf("got %q, want unchanged %q", got, "claude")
 	}
+	// The sandbox-bypass env is tied to isolation: with isolation off it
+	// must never leak into the worker's command.
+	if strings.Contains(got, "IS_SANDBOX") {
+		t.Fatalf("got %q, want no IS_SANDBOX when isolation off", got)
+	}
 }
 
 func TestWrapForIsolationOnPastaPresent(t *testing.T) {
@@ -37,7 +42,12 @@ func TestWrapForIsolationOnPastaPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "pasta --config-net -- sleep 30"
+	// pasta --config-net runs the worker in a user namespace mapped to
+	// uid 0. claude refuses to run as root, so the netns spawn must inject
+	// its sandbox-bypass env (IS_SANDBOX=1) via coreutils `env`. This is
+	// legitimate: the worker IS sandboxed (own netns) and uid-0 is only a
+	// userns mapping to the unprivileged spore user.
+	want := "pasta --config-net -- env IS_SANDBOX=1 sleep 30"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
