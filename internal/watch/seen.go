@@ -11,6 +11,11 @@ import (
 type State struct {
 	Failures int               `json:"failures"`
 	Seen     map[string]string `json:"seen"`
+	// NotifiedSig / NotifiedAt track the last ill-health alert so an
+	// unchanged, still-stuck condition is not re-notified every tick.
+	// Absent from older pr-watch.json files; omitempty keeps them optional.
+	NotifiedSig string `json:"notified_sig,omitempty"`
+	NotifiedAt  string `json:"notified_at,omitempty"`
 
 	path string
 }

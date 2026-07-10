@@ -3,7 +3,16 @@ package watch
 import (
 	"fmt"
 	"strings"
+	"time"
 )
+
+// now is the package clock, overridable in tests.
+var now = func() time.Time { return time.Now() }
+
+// failureCooldown is how long an unchanged ill-health alert stays suppressed
+// before it re-surfaces once as a heartbeat, so a genuinely stuck condition is
+// never silently swallowed.
+const failureCooldown = 4 * time.Hour
 
 type Report struct {
 	Alerts  int
@@ -35,7 +44,7 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 	}
 	prs, err := OpenPRs(projectRoot)
 	if err != nil {
-		return rep, noteFailure(st, tell, err)
+		return rep, noteFailure(st, dryRun, tell, err)
 	}
 	live := map[string]bool{}
 	var alerts []prAlert
@@ -45,7 +54,7 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		}
 		checks, err := FailingChecks(projectRoot, pr.Number)
 		if err != nil {
-			return rep, noteFailure(st, tell, err)
+			return rep, noteFailure(st, dryRun, tell, err)
 		}
 		var newKeys []string
 		var lines []string
@@ -90,7 +99,11 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		rep.Alerts++
 	}
 	st.Prune(live)
+	// A clean poll clears the failure record so the next failure alerts
+	// immediately rather than waiting out the cooldown.
 	st.Failures = 0
+	st.NotifiedSig = ""
+	st.NotifiedAt = ""
 	return rep, st.Save()
 }
 
@@ -104,16 +117,52 @@ func nameMatches(name string, patterns []string) bool {
 	return false
 }
 
-func noteFailure(st *State, tell func(string, string) error, cause error) error {
+// failureSig is the dedup key for an ill-health alert. cause.Error() already
+// embeds the gh subcommand (PR number, args) and the exit status, so a trimmed
+// copy is a stable "same failure" signature. Its exact shape is pinned by
+// TestFailureSigShape rather than assumed.
+func failureSig(cause error) string {
+	return strings.TrimSpace(cause.Error())
+}
+
+// cooldownElapsed reports whether failureCooldown has passed since notifiedAt.
+// An empty or unparseable timestamp means "notify" so a real alert is never
+// swallowed by a bad record.
+func cooldownElapsed(notifiedAt string) bool {
+	if notifiedAt == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, notifiedAt)
+	if err != nil {
+		return true
+	}
+	return now().Sub(t) >= failureCooldown
+}
+
+// noteFailure records a polling failure and alerts the coordinator only when
+// the failure is sustained (>= 3 consecutive) AND the signature is new or the
+// cooldown has elapsed. In dry-run it is a pure probe: it surfaces the failure
+// via the returned error but neither tells nor mutates state.
+func noteFailure(st *State, dryRun bool, tell func(string, string) error, cause error) error {
+	if dryRun {
+		return cause
+	}
 	st.Failures++
-	// Save the incremented counter before telling: if Save fails the tell is
-	// suppressed (silent gap) rather than firing again next round (duplicate).
+	sig := failureSig(cause)
+	notify := st.Failures >= 3 && (sig != st.NotifiedSig || cooldownElapsed(st.NotifiedAt))
+	if notify {
+		st.NotifiedSig = sig
+		st.NotifiedAt = now().UTC().Format(time.RFC3339)
+	}
+	// Save the incremented counter (and notify record) before telling: if Save
+	// fails the tell is suppressed (silent gap) rather than firing again next
+	// round (duplicate).
 	if err := st.Save(); err != nil {
 		return err
 	}
-	if st.Failures == 3 {
+	if notify {
 		_ = tell("coordinator",
-			fmt.Sprintf("pr-watch: unhealthy, 3 consecutive polling failures. Last error: %v", cause))
+			fmt.Sprintf("pr-watch: unhealthy, %d consecutive polling failures. Last error: %v", st.Failures, cause))
 	}
 	return cause
 }
