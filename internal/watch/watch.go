@@ -48,13 +48,21 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 	}
 	live := map[string]bool{}
 	var alerts []prAlert
+	// A single PR whose checks query errors is skipped so it cannot blind the
+	// watcher to the PRs after it. Only a total wipeout (every evaluated PR
+	// errors) is treated as ill-health.
+	var evaluated, perPRErrors int
+	var lastPRErr error
 	for _, pr := range prs {
 		if pr.IsDraft {
 			continue
 		}
+		evaluated++
 		checks, err := FailingChecks(projectRoot, pr.Number)
 		if err != nil {
-			return rep, noteFailure(st, dryRun, tell, err)
+			perPRErrors++
+			lastPRErr = err
+			continue
 		}
 		var newKeys []string
 		var lines []string
@@ -80,6 +88,10 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 			strings.Join(lines, "\n"),
 			pr.URL, runbook)
 		alerts = append(alerts, prAlert{newKeys, msg})
+	}
+	if evaluated > 0 && perPRErrors == evaluated {
+		return rep, noteFailure(st, dryRun, tell,
+			fmt.Errorf("all %d open PR(s) failed their checks query: %w", evaluated, lastPRErr))
 	}
 	if dryRun {
 		rep.Alerts = len(alerts)

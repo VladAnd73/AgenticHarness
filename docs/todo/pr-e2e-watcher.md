@@ -100,7 +100,9 @@ is single-occupancy on this host.
 | new commit on PR | fresh cycle, may alert again |
 | same failure, same commit | silent (already reported) |
 | retry already spent | no second retry; escalate |
-| GitHub/token error | skip round; after 3 consecutive bad rounds, report watcher ill-health to coordinator |
+| PR has no checks | not an error; the PR contributes zero failing checks and the poll continues (gh prints "no checks reported", exit 1, empty stdout) |
+| one PR's checks query errors | skip that PR, keep evaluating the rest; a single per-PR error is not fatal and does not feed ill-health |
+| GitHub/token error (top-level `pr list`, or every open PR's checks query errors) | skip round; after 3 consecutive bad rounds, report watcher ill-health to coordinator |
 | coordinator asleep | inbox message waits; handled on next wake |
 | many failing PRs | one task per PR, serial execution |
 | rerun permission denied | never silently skip: escalate instead |
