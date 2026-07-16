@@ -16,9 +16,26 @@
   outputs =
     { self, nixpkgs, flake-utils, home-manager, claude-code }:
     let
+      # nixpkgs (even master) still packages go1.26.4; go1.26.5 is the
+      # first stdlib release that fixes GO-2026-5856 (crypto/tls), which
+      # govulncheck flags as reachable via internal/infect and
+      # internal/budget. Pin the toolchain to 1.26.5 from the upstream
+      # source tarball until nixpkgs catches up, then drop this overlay.
+      goToolchainOverlay = final: prev: {
+        go = prev.go.overrideAttrs (_old: {
+          version = "1.26.5";
+          src = prev.fetchurl {
+            url = "https://go.dev/dl/go1.26.5.src.tar.gz";
+            hash = "sha256-SVvkvIcXasVnOS5bQRar2YRm0z17SdQedkzMaXay3EI=";
+          };
+        });
+      };
       perSystem = flake-utils.lib.eachDefaultSystem (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ goToolchainOverlay ];
+          };
           version = pkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
           commit =
             if self ? rev then self.rev
