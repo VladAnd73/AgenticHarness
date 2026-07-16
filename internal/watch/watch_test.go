@@ -299,6 +299,113 @@ esac`)
 	}
 }
 
+// partialErrorScript: PR #1's checks query errors (auth, exit 4); PR #2's
+// query succeeds with a non-failing check. A partial-error poll: neither a
+// total wipeout nor a fully clean poll.
+const partialErrorScript = `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"a","headRefOid":"s1","isDraft":false,"url":"u1"},{"number":2,"headRefName":"b","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks)
+  case "$3" in
+  1) echo "gh: authentication failed" >&2; exit 4 ;;
+  2) echo '[{"name":"e2e-run","bucket":"pass","link":""}]' ;;
+  esac ;;
+esac`
+
+// Regression 1: a partial-error poll must not reset the ill-health record, and
+// repeated partial failures must still escalate to the 3-strike alert.
+func TestRunPartialErrorPreservesFailureRecord(t *testing.T) {
+	root, tells, tell := setupRun(t, partialErrorScript)
+	// Seed two prior failures so one more partial round crosses the 3-strike
+	// threshold - provided the partial poll advances rather than wipes the record.
+	st, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Failures = 2
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(root, "proj", false, tell); err != nil {
+		t.Fatalf("partial poll must not abort: %v", err)
+	}
+	after, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Failures != 3 {
+		t.Fatalf("partial error must advance the failure counter (2 -> 3), got %d", after.Failures)
+	}
+	if len(*tells) != 1 || !strings.Contains((*tells)[0].msg, "unhealthy") {
+		t.Fatalf("reaching 3 consecutive failures must fire one ill-health tell, got %v", *tells)
+	}
+}
+
+// Regression 2: a PR whose checks query errors this round must keep its seen
+// dedup keys, so the same failing check on the same commit does not re-alert
+// once the query recovers.
+func TestRunTransientErrorPreservesSeenKeys(t *testing.T) {
+	counterFile := filepath.Join(t.TempDir(), "counter")
+	if err := os.WriteFile(counterFile, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// PR #1 is the target: round 1 fails e2e-login, round 2 errors transiently,
+	// round 3 recovers still failing e2e-login on the same commit. PR #2 always
+	// answers cleanly so round 2 is a partial error, not a wipeout.
+	script := `#!/bin/sh
+case "$2" in
+list) echo '[{"number":1,"headRefName":"target","headRefOid":"s1","isDraft":false,"url":"https://github.com/o/r/pull/1"},{"number":2,"headRefName":"other","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks)
+  case "$3" in
+  1)
+    n=$(cat ` + counterFile + `)
+    echo $((n+1)) > ` + counterFile + `
+    if [ "$n" -eq 1 ]; then
+      echo "gh: server error" >&2; exit 5
+    else
+      echo '[{"name":"e2e-login","bucket":"fail","link":"https://ci/runs/1/job/1"}]'; exit 8
+    fi
+    ;;
+  2) echo '[{"name":"unit","bucket":"pass","link":""}]' ;;
+  esac ;;
+esac`
+	root, _, _ := setupRun(t, script)
+
+	var got1 []told
+	rep1, err := Run(root, "proj", false, func(slug, msg string) error {
+		got1 = append(got1, told{slug, msg})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep1.Alerts != 1 || len(got1) != 1 || !strings.Contains(got1[0].msg, "e2e-login") {
+		t.Fatalf("round 1: want 1 alert for e2e-login, got %+v / %v", rep1, got1)
+	}
+
+	var got2 []told
+	if _, err := Run(root, "proj", false, func(slug, msg string) error {
+		got2 = append(got2, told{slug, msg})
+		return nil
+	}); err != nil {
+		t.Fatalf("round 2 (partial error) must not abort: %v", err)
+	}
+	if len(got2) != 0 {
+		t.Fatalf("round 2: transient error must not alert, got %v", got2)
+	}
+
+	var got3 []told
+	if _, err := Run(root, "proj", false, func(slug, msg string) error {
+		got3 = append(got3, told{slug, msg})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got3) != 0 {
+		t.Fatalf("round 3: same check on same commit must NOT re-alert (seen key dropped by prune), got %v", got3)
+	}
+}
+
 // allPRsErrorScript: pr list succeeds but every PR's checks query fails with a
 // non-benign error - a total wipeout, not a single transient skip.
 const allPRsErrorScript = `

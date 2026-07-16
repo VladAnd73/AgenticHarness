@@ -62,6 +62,16 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		if err != nil {
 			perPRErrors++
 			lastPRErr = err
+			// Keep this PR's already-seen dedup keys alive so Prune does not drop
+			// them; otherwise the same failing check re-alerts once the query
+			// recovers. We cannot re-list its checks, but PR number + head SHA
+			// identify all of its keys.
+			prefix := fmt.Sprintf("%d:%s:", pr.Number, pr.HeadSHA)
+			for k := range st.Seen {
+				if strings.HasPrefix(k, prefix) {
+					live[k] = true
+				}
+			}
 			continue
 		}
 		var newKeys []string
@@ -111,7 +121,14 @@ func Run(projectRoot, project string, dryRun bool, tell func(slug, msg string) e
 		rep.Alerts++
 	}
 	st.Prune(live)
-	// A clean poll clears the failure record so the next failure alerts
+	if perPRErrors > 0 {
+		// Partial-error poll: healthy PRs were evaluated and alerted, so the poll
+		// is not aborted, but a gh failure still occurred. Advance the ill-health
+		// record (do not reset it) so repeated partial outages still escalate.
+		return rep, recordFailure(st, tell,
+			fmt.Errorf("%d of %d open PR(s) failed their checks query: %w", perPRErrors, evaluated, lastPRErr))
+	}
+	// A fully clean poll clears the failure record so the next failure alerts
 	// immediately rather than waiting out the cooldown.
 	st.Failures = 0
 	st.NotifiedSig = ""
@@ -151,14 +168,13 @@ func cooldownElapsed(notifiedAt string) bool {
 	return now().Sub(t) >= failureCooldown
 }
 
-// noteFailure records a polling failure and alerts the coordinator only when
-// the failure is sustained (>= 3 consecutive) AND the signature is new or the
-// cooldown has elapsed. In dry-run it is a pure probe: it surfaces the failure
-// via the returned error but neither tells nor mutates state.
-func noteFailure(st *State, dryRun bool, tell func(string, string) error, cause error) error {
-	if dryRun {
-		return cause
-	}
+// recordFailure advances the consecutive-failure counter and alerts the
+// coordinator only when the failure is sustained (>= 3 consecutive) AND the
+// signature is new or the cooldown has elapsed. It persists the updated record
+// and returns only a persistence error, so callers decide whether the poll as
+// a whole failed. Used by both the total-failure path (via noteFailure) and
+// the partial-error path, so an intermittent outage still escalates.
+func recordFailure(st *State, tell func(string, string) error, cause error) error {
 	st.Failures++
 	sig := failureSig(cause)
 	notify := st.Failures >= 3 && (sig != st.NotifiedSig || cooldownElapsed(st.NotifiedAt))
@@ -175,6 +191,20 @@ func noteFailure(st *State, dryRun bool, tell func(string, string) error, cause 
 	if notify {
 		_ = tell("coordinator",
 			fmt.Sprintf("pr-watch: unhealthy, %d consecutive polling failures. Last error: %v", st.Failures, cause))
+	}
+	return nil
+}
+
+// noteFailure is the total-failure path (top-level pr list error, or every PR
+// erroring). In dry-run it is a pure probe: it surfaces the failure via the
+// returned error but neither tells nor mutates state. Otherwise it records the
+// failure and returns cause so the poll surfaces the error to its caller.
+func noteFailure(st *State, dryRun bool, tell func(string, string) error, cause error) error {
+	if dryRun {
+		return cause
+	}
+	if err := recordFailure(st, tell, cause); err != nil {
+		return err
 	}
 	return cause
 }

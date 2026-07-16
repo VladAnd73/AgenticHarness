@@ -101,7 +101,7 @@ is single-occupancy on this host.
 | same failure, same commit | silent (already reported) |
 | retry already spent | no second retry; escalate |
 | PR has no checks | not an error; the PR contributes zero failing checks and the poll continues (gh prints "no checks reported", exit 1, empty stdout) |
-| one PR's checks query errors | skip that PR, keep evaluating the rest; a single per-PR error is not fatal and does not feed ill-health |
+| one PR's checks query errors | skip that PR, keep evaluating and alerting the rest (the poll is not aborted). That PR keeps its seen dedup keys, so the same failing check does not re-alert once the query recovers. The failure still advances the ill-health counter: only a fully clean poll (no per-PR errors) resets it, so repeated partial outages still reach the 3-strike alert |
 | GitHub/token error (top-level `pr list`, or every open PR's checks query errors) | skip round; after 3 consecutive bad rounds, report watcher ill-health to coordinator |
 | coordinator asleep | inbox message waits; handled on next wake |
 | many failing PRs | one task per PR, serial execution |
