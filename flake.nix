@@ -42,7 +42,11 @@
             else if self ? dirtyRev then self.dirtyRev
             else "unknown";
 
-          spore = pkgs.buildGoModule {
+          # buildGoModule binds its own versioned go, not pkgs.go, so the
+          # goToolchainOverlay above only reaches the devshell unless we
+          # pass the overlaid go here too. Without this the shipped binary
+          # compiles with the stock 1.26.3 stdlib and keeps GO-2026-5856.
+          spore = (pkgs.buildGoModule.override { go = pkgs.go; }) {
             pname = "spore";
             inherit version;
             src = ./.;
@@ -208,6 +212,32 @@
               export GOMODCACHE=$TMPDIR/gomod
               export CGO_ENABLED=0
               go run ./cmd/spore lint
+              touch $out
+            '';
+            # Load-bearing artifact gate. buildGoModule binds its own go,
+            # not pkgs.go, so overlaying the toolchain only reaches the
+            # devshell unless buildGoModule is told to use it too. Read the
+            # Go version embedded in the SHIPPED binary and fail if it is
+            # older than the vuln-clear floor (GO-2026-5856, crypto/tls,
+            # fixed in 1.26.5). A source-only or devshell-only check misses
+            # this, which is how PR #8 went green with a still-vulnerable
+            # artifact.
+            spore-toolchain = pkgs.runCommand "spore-toolchain"
+              {
+                nativeBuildInputs = [ pkgs.go ];
+              } ''
+              min="1.26.5"
+              ver="$(go version ${spore}/bin/spore \
+                | grep -oE 'go[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^go//')"
+              echo "artifact go toolchain: $ver (require >= $min)"
+              if [ -z "$ver" ]; then
+                echo "could not read go toolchain from artifact"
+                exit 1
+              fi
+              if ! printf '%s\n%s\n' "$min" "$ver" | sort -V -C; then
+                echo "artifact go $ver is older than required $min"
+                exit 1
+              fi
               touch $out
             '';
             shims-layout = pkgs.runCommand "spore-shims-layout" { } ''
