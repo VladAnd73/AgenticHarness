@@ -55,3 +55,16 @@ func TestFailingChecksNonZeroExitStillParses(t *testing.T) {
 		t.Fatalf("want 1 failing check, got %+v", checks)
 	}
 }
+
+func TestFailingChecksNoChecksReportedIsEmpty(t *testing.T) {
+	// gh prints this sentinel to stderr, exits 1, empty stdout when a PR has no
+	// checks at all. A PR with no checks has nothing failing, not an error.
+	fakeGH(t, `echo "no checks reported on the 'feat-x' branch" >&2; exit 1`)
+	checks, err := FailingChecks(t.TempDir(), 3)
+	if err != nil {
+		t.Fatalf("no-checks PR must not error, got %v", err)
+	}
+	if len(checks) != 0 {
+		t.Fatalf("no-checks PR must have zero failing checks, got %+v", checks)
+	}
+}

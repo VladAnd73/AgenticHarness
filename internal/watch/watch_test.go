@@ -201,6 +201,238 @@ func TestRunRollsUpChecksPerPR(t *testing.T) {
 	}
 }
 
+// firstPRNoChecksScript: PR #1 (first in the list) has no checks (gh exits 1,
+// prints the "no checks reported" sentinel to stderr, empty stdout); PR #2 has
+// a failing e2e check. Mirrors the reported bug: a no-CI PR sorted ahead of a
+// real e2e PR.
+const firstPRNoChecksScript = `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"bump","headRefOid":"s1","isDraft":false,"url":"https://github.com/o/r/pull/1"},{"number":2,"headRefName":"real-e2e","headRefOid":"s2","isDraft":false,"url":"https://github.com/o/r/pull/2"}]' ;;
+checks)
+  case "$3" in
+  1) echo "no checks reported on the 'bump' branch" >&2; exit 1 ;;
+  2) echo '[{"name":"e2e-run","bucket":"fail","link":"https://github.com/o/r/actions/runs/9/job/1"}]'; exit 8 ;;
+  esac ;;
+esac`
+
+func TestRunNoChecksPRDoesNotBlindLaterPR(t *testing.T) {
+	root, tells, tell := setupRun(t, firstPRNoChecksScript)
+	rep, err := Run(root, "proj", false, tell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Alerts != 1 || len(*tells) != 1 {
+		t.Fatalf("want 1 alert for the later PR, got %+v / %d tells", rep, len(*tells))
+	}
+	if !strings.Contains((*tells)[0].msg, "PR #2") {
+		t.Fatalf("alert must be for PR #2:\n%s", (*tells)[0].msg)
+	}
+}
+
+// firstPRAuthErrorScript: PR #1 errors with a non-benign auth failure (gh exit
+// 4, empty stdout, stderr is NOT the no-checks sentinel); PR #2 has a failing
+// e2e check.
+const firstPRAuthErrorScript = `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"a","headRefOid":"s1","isDraft":false,"url":"https://github.com/o/r/pull/1"},{"number":2,"headRefName":"b","headRefOid":"s2","isDraft":false,"url":"https://github.com/o/r/pull/2"}]' ;;
+checks)
+  case "$3" in
+  1) echo "gh: authentication failed" >&2; exit 4 ;;
+  2) echo '[{"name":"e2e-run","bucket":"fail","link":"https://github.com/o/r/actions/runs/9/job/1"}]'; exit 8 ;;
+  esac ;;
+esac`
+
+func TestRunPerPRErrorSkippedNotAborted(t *testing.T) {
+	root, tells, tell := setupRun(t, firstPRAuthErrorScript)
+	rep, err := Run(root, "proj", false, tell)
+	if err != nil {
+		t.Fatalf("a single PR error must not abort the poll: %v", err)
+	}
+	if rep.Alerts != 1 || len(*tells) != 1 {
+		t.Fatalf("want 1 alert for the healthy PR, got %+v / %d tells", rep, len(*tells))
+	}
+	if !strings.Contains((*tells)[0].msg, "PR #2") {
+		t.Fatalf("alert must be for PR #2:\n%s", (*tells)[0].msg)
+	}
+}
+
+func TestRunNoChecksResetsFailureCounter(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writeWatchToml(t, cfgDir, "proj", "enabled = true\nchecks = [\"e2e\"]\n")
+	// Two healthy PRs: one with a passing check, one with no checks at all.
+	fakeGH(t, `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"a","headRefOid":"s1","isDraft":false,"url":"u1"},{"number":2,"headRefName":"b","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks)
+  case "$3" in
+  1) echo '[{"name":"e2e-run","bucket":"pass","link":""}]' ;;
+  2) echo "no checks reported on the 'b' branch" >&2; exit 1 ;;
+  esac ;;
+esac`)
+	// Seed a non-zero failure counter left by a prior bad round.
+	st, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Failures = 2
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(t.TempDir(), "proj", false, func(string, string) error {
+		t.Fatal("healthy poll must not tell")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Alerts != 0 {
+		t.Fatalf("healthy poll: want 0 alerts, got %+v", rep)
+	}
+	after, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Failures != 0 {
+		t.Fatalf("clean poll must reset failures to 0, got %d", after.Failures)
+	}
+}
+
+// partialErrorScript: PR #1's checks query errors (auth, exit 4); PR #2's
+// query succeeds with a non-failing check. A partial-error poll: neither a
+// total wipeout nor a fully clean poll.
+const partialErrorScript = `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"a","headRefOid":"s1","isDraft":false,"url":"u1"},{"number":2,"headRefName":"b","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks)
+  case "$3" in
+  1) echo "gh: authentication failed" >&2; exit 4 ;;
+  2) echo '[{"name":"e2e-run","bucket":"pass","link":""}]' ;;
+  esac ;;
+esac`
+
+// Regression 1: a partial-error poll must not reset the ill-health record, and
+// repeated partial failures must still escalate to the 3-strike alert.
+func TestRunPartialErrorPreservesFailureRecord(t *testing.T) {
+	root, tells, tell := setupRun(t, partialErrorScript)
+	// Seed two prior failures so one more partial round crosses the 3-strike
+	// threshold - provided the partial poll advances rather than wipes the record.
+	st, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Failures = 2
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(root, "proj", false, tell); err != nil {
+		t.Fatalf("partial poll must not abort: %v", err)
+	}
+	after, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Failures != 3 {
+		t.Fatalf("partial error must advance the failure counter (2 -> 3), got %d", after.Failures)
+	}
+	if len(*tells) != 1 || !strings.Contains((*tells)[0].msg, "unhealthy") {
+		t.Fatalf("reaching 3 consecutive failures must fire one ill-health tell, got %v", *tells)
+	}
+}
+
+// Regression 2: a PR whose checks query errors this round must keep its seen
+// dedup keys, so the same failing check on the same commit does not re-alert
+// once the query recovers.
+func TestRunTransientErrorPreservesSeenKeys(t *testing.T) {
+	counterFile := filepath.Join(t.TempDir(), "counter")
+	if err := os.WriteFile(counterFile, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// PR #1 is the target: round 1 fails e2e-login, round 2 errors transiently,
+	// round 3 recovers still failing e2e-login on the same commit. PR #2 always
+	// answers cleanly so round 2 is a partial error, not a wipeout.
+	script := `#!/bin/sh
+case "$2" in
+list) echo '[{"number":1,"headRefName":"target","headRefOid":"s1","isDraft":false,"url":"https://github.com/o/r/pull/1"},{"number":2,"headRefName":"other","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks)
+  case "$3" in
+  1)
+    n=$(cat ` + counterFile + `)
+    echo $((n+1)) > ` + counterFile + `
+    if [ "$n" -eq 1 ]; then
+      echo "gh: server error" >&2; exit 5
+    else
+      echo '[{"name":"e2e-login","bucket":"fail","link":"https://ci/runs/1/job/1"}]'; exit 8
+    fi
+    ;;
+  2) echo '[{"name":"unit","bucket":"pass","link":""}]' ;;
+  esac ;;
+esac`
+	root, _, _ := setupRun(t, script)
+
+	var got1 []told
+	rep1, err := Run(root, "proj", false, func(slug, msg string) error {
+		got1 = append(got1, told{slug, msg})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep1.Alerts != 1 || len(got1) != 1 || !strings.Contains(got1[0].msg, "e2e-login") {
+		t.Fatalf("round 1: want 1 alert for e2e-login, got %+v / %v", rep1, got1)
+	}
+
+	var got2 []told
+	if _, err := Run(root, "proj", false, func(slug, msg string) error {
+		got2 = append(got2, told{slug, msg})
+		return nil
+	}); err != nil {
+		t.Fatalf("round 2 (partial error) must not abort: %v", err)
+	}
+	if len(got2) != 0 {
+		t.Fatalf("round 2: transient error must not alert, got %v", got2)
+	}
+
+	var got3 []told
+	if _, err := Run(root, "proj", false, func(slug, msg string) error {
+		got3 = append(got3, told{slug, msg})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got3) != 0 {
+		t.Fatalf("round 3: same check on same commit must NOT re-alert (seen key dropped by prune), got %v", got3)
+	}
+}
+
+// allPRsErrorScript: pr list succeeds but every PR's checks query fails with a
+// non-benign error - a total wipeout, not a single transient skip.
+const allPRsErrorScript = `
+case "$2" in
+list) echo '[{"number":1,"headRefName":"a","headRefOid":"s1","isDraft":false,"url":"u1"},{"number":2,"headRefName":"b","headRefOid":"s2","isDraft":false,"url":"u2"}]' ;;
+checks) echo "gh: authentication failed" >&2; exit 4 ;;
+esac`
+
+func TestRunAllPRsErrorIsIllHealth(t *testing.T) {
+	root, tells, tell := setupRun(t, allPRsErrorScript)
+	// A wipeout round routes through noteFailure and surfaces the error rather
+	// than silently reporting a clean poll.
+	if _, err := Run(root, "proj", false, tell); err == nil {
+		t.Fatal("total wipeout must surface an error")
+	}
+	if len(*tells) != 0 {
+		t.Fatalf("must not alert before 3 consecutive failures, got %v", *tells)
+	}
+	after, err := LoadState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Failures != 1 {
+		t.Fatalf("wipeout must increment the failure counter, got %d", after.Failures)
+	}
+}
+
 // counterFile is used by TestRunNewCheckOnAlertedPRTriggersRollup to simulate
 // a PR that gains a second failing check on the second polling round.
 func TestRunNewCheckOnAlertedPRTriggersRollup(t *testing.T) {
