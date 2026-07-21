@@ -30,8 +30,13 @@ coverage:
     go test -covermode=atomic -coverprofile=coverage/coverage.out ./...
     go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
 
+# Source mode scans the devshell toolchain; binary mode scans the
+# SHIPPED artifact's embedded stdlib. The artifact scan is the gate
+# that catches a false green where the devshell go is patched but
+# buildGoModule still compiles the binary with a vulnerable toolchain.
 vuln:
     govulncheck ./...
+    govulncheck -mode=binary "$(nix build .#spore --no-link --print-out-paths)/bin/spore"
 
 nix-check:
     nix flake check
