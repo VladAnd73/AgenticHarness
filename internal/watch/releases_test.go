@@ -84,6 +84,62 @@ func TestRunReleasesEndToEnd(t *testing.T) {
 	}
 }
 
+const configWithInstruction = `
+[releases]
+enabled = true
+repos = ["o/backend"]
+coordinators = ["frontend"]
+instruction = "Use the my-skill skill: sync the KB for this release now."
+`
+
+// A configured instruction replaces the generic default in the message body.
+func TestRunReleasesUsesConfiguredInstruction(t *testing.T) {
+	root, tells, _, tell, poke := setupReleases(t, configWithInstruction, oneReleaseScript)
+	st, _ := LoadState("proj")
+	st.MarkRelease("o/backend", "v1.9.0")
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunReleases(root, "proj", false, tell, poke); err != nil {
+		t.Fatal(err)
+	}
+	if len(*tells) != 1 {
+		t.Fatalf("want one tell, got %v", *tells)
+	}
+	msg := (*tells)[0].msg
+	if !strings.Contains(msg, "Use the my-skill skill: sync the KB for this release now.") {
+		t.Fatalf("msg missing configured instruction:\n%s", msg)
+	}
+	if strings.Contains(msg, "Notion Product Knowledge KB") {
+		t.Fatalf("configured instruction must replace the generic default:\n%s", msg)
+	}
+	// The repo/tag/url prefix is still present.
+	for _, want := range []string{"o/backend", "v2.0.0", "releases/tag/v2.0.0"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("msg missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+// With no instruction configured, the generic default is used.
+func TestRunReleasesDefaultInstructionWhenUnset(t *testing.T) {
+	root, tells, _, tell, poke := setupReleases(t, oneRepoConfig, oneReleaseScript)
+	st, _ := LoadState("proj")
+	st.MarkRelease("o/backend", "v1.9.0")
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunReleases(root, "proj", false, tell, poke); err != nil {
+		t.Fatal(err)
+	}
+	if len(*tells) != 1 {
+		t.Fatalf("want one tell, got %v", *tells)
+	}
+	if !strings.Contains((*tells)[0].msg, "Start a worker to sync the Notion Product Knowledge KB for this release.") {
+		t.Fatalf("msg missing generic default:\n%s", (*tells)[0].msg)
+	}
+}
+
 // Scenario 2: first-run seeding. No stored tag -> store baseline, do NOT poke.
 func TestRunReleasesFirstRunSeeds(t *testing.T) {
 	root, tells, pokes, tell, poke := setupReleases(t, oneRepoConfig, oneReleaseScript)

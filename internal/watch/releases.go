@@ -5,6 +5,11 @@ import (
 	"os"
 )
 
+// defaultReleaseInstruction is the generic KB-sync wording used when the
+// [releases] config sets no instruction. It names no skill; consumers that
+// want a skill-specific instruction set one in their watch.toml.
+const defaultReleaseInstruction = "Start a worker to sync the Notion Product Knowledge KB for this release."
+
 // ReleaseReport summarizes a release-watch run: pokes fired (one per
 // coordinator per newly released repo) and repos whose tag was unchanged.
 type ReleaseReport struct {
@@ -30,6 +35,11 @@ func RunReleases(projectRoot, project string, dryRun bool,
 	st, err := LoadState(project)
 	if err != nil {
 		return rep, err
+	}
+
+	instruction := cfg.Instruction
+	if instruction == "" {
+		instruction = defaultReleaseInstruction
 	}
 
 	dirty := false
@@ -60,10 +70,8 @@ func RunReleases(projectRoot, project string, dryRun bool,
 			continue
 		}
 
-		msg := fmt.Sprintf(
-			"New release on `%s` (tag `%s`): %s. Start a worker to sync the "+
-				"Notion Product Knowledge KB for this release.",
-			repo, rel.TagName, rel.URL)
+		msg := fmt.Sprintf("New release on `%s` (tag `%s`): %s. %s",
+			repo, rel.TagName, rel.URL, instruction)
 		if dryRun {
 			rep.Pokes += len(cfg.Coordinators)
 			continue

@@ -19,6 +19,10 @@ type ReleasesConfig struct {
 	Enabled      bool
 	Repos        []string
 	Coordinators []string
+	// Instruction, when set, replaces the generic KB-sync sentence in the
+	// poke message body. Empty means use the default. The kernel names no
+	// skill; a consumer's config supplies its own skill-specific wording.
+	Instruction string
 }
 
 func LoadConfig(project string) (Config, error) {
@@ -47,6 +51,7 @@ func LoadReleasesConfig(project string) (ReleasesConfig, error) {
 		Enabled:      rel["enabled"] == "true",
 		Repos:        parseStringList(rel["repos"]),
 		Coordinators: parseStringList(rel["coordinators"]),
+		Instruction:  parseScalarString(rel["instruction"]),
 	}, nil
 }
 
@@ -85,6 +90,10 @@ func readWatchToml(project string) (map[string]map[string]string, error) {
 		sections[section][key] = val
 	}
 	return sections, nil
+}
+
+func parseScalarString(val string) string {
+	return strings.Trim(strings.TrimSpace(val), `"'`)
 }
 
 func parseStringList(val string) []string {

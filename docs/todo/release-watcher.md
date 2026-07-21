@@ -38,6 +38,7 @@ separate from the existing top-level pr-watch keys:
 enabled = true
 repos = ["marketertechnologies/marketer", "marketertechnologies/marketer-frontend"]
 coordinators = ["marketer-frontend"]
+instruction = "Use the syncing-marketer-product-knowledge-on-release skill: start a WORKER to sync the Notion KB for this release."
 ```
 
 - `repos`: GitHub `owner/repo` slugs to watch.
@@ -45,6 +46,10 @@ coordinators = ["marketer-frontend"]
   told on any new release. Flat routing: every new release pokes every
   listed coordinator.
 - `enabled`: master off-switch; absent/false means the run is a no-op.
+- `instruction` (optional): overrides the generic KB-sync sentence in
+  the poke message body. Absent means the generic default is used. The
+  kernel names no skill; a consumer sets this to name its own KB-sync
+  skill. Do NOT hardcode any skill name in the kernel.
 
 Extend `internal/watch/config.go` (`LoadConfig`) to parse the
 `[releases]` section. The current parser is flat key=value with no
@@ -112,16 +117,18 @@ not re-fire next cycle), matching `tellWithPoke`.
 
 ### Message body
 
-Names the repo, tag, and URL, and instructs the coordinator to use a
-WORKER (operator requirement) to do the KB sync. Example:
+Names the repo, tag, and URL, then appends the instruction. The
+instruction is the `[releases] instruction` config value when set, or a
+generic default (`Start a worker to sync the Notion Product Knowledge
+KB for this release.`) when absent. Default example:
 
 > New release on `marketertechnologies/marketer` (tag `v2.5.0`):
 > <release-url>. Start a worker to sync the Notion Product Knowledge KB
 > for this release.
 
-The coordinator maps this to its own KB-sync skill
-(`syncing-marketer-product-knowledge-on-release`); the watcher stays
-generic and names no skill.
+The watcher stays generic and names no skill. A consumer's config sets
+`instruction` to name its own KB-sync skill (e.g. the marketer-frontend
+coordinator points it at `syncing-marketer-product-knowledge-on-release`).
 
 ## CLI
 
@@ -176,6 +183,9 @@ scenarios:
 8. Poke targets: the poke lands in the configured coordinator's wake
    channel and the message in that coordinator's project message inbox.
 9. dry-run: reports intent, writes no state, sends nothing.
+10. Instruction override: given `[releases] instruction` set, the
+    message body includes it (and not the generic default); given it
+    unset, the generic default is used.
 
 At least scenario 1 exercises the full flow (config -> gh -> dedup ->
 message + poke -> state) end to end.

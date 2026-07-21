@@ -35,6 +35,26 @@ coordinators = ["frontend"]
 	}
 }
 
+func TestLoadReleasesConfigParsesInstruction(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeWatchToml(t, dir, "proj", `
+[releases]
+enabled = true
+repos = ["o/r"]
+coordinators = ["c"]
+instruction = "Use the x skill: do it, tag <tag>."
+`)
+	cfg, err := LoadReleasesConfig("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Use the x skill: do it, tag <tag>."
+	if cfg.Instruction != want {
+		t.Fatalf("instruction = %q, want %q", cfg.Instruction, want)
+	}
+}
+
 func TestLoadReleasesConfigMissingFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := LoadReleasesConfig("nope")
