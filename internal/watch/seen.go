@@ -17,6 +17,10 @@ type State struct {
 	NotifiedSig string `json:"notified_sig,omitempty"`
 	NotifiedAt  string `json:"notified_at,omitempty"`
 
+	// Releases is the last-notified release tag per watched repo, keyed by
+	// owner/repo. Used by the release-watcher; absent from pr-only state.
+	Releases map[string]string `json:"releases,omitempty"`
+
 	path string
 }
 
@@ -66,6 +70,21 @@ func (s *State) SeenKey(key string) bool {
 
 func (s *State) MarkKey(key string) {
 	s.Seen[key] = time.Now().UTC().Format(time.RFC3339)
+}
+
+// ReleaseTag returns the last-notified release tag for repo (owner/repo) and
+// whether it has ever been observed.
+func (s *State) ReleaseTag(repo string) (string, bool) {
+	tag, ok := s.Releases[repo]
+	return tag, ok
+}
+
+// MarkRelease records tag as the last-notified release for repo.
+func (s *State) MarkRelease(repo, tag string) {
+	if s.Releases == nil {
+		s.Releases = map[string]string{}
+	}
+	s.Releases[repo] = tag
 }
 
 func (s *State) Prune(liveKeys map[string]bool) {

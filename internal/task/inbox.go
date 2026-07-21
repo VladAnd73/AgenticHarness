@@ -18,6 +18,22 @@ func Tell(slug, msg string) error {
 	if err != nil {
 		return err
 	}
+	return tellToDir(dir, slug, msg)
+}
+
+// TellProject delivers a message envelope to project's slug inbox, resolving
+// the path from the project NAME rather than the current cwd. A watcher runs
+// in one project but routes messages to other projects' coordinators, which
+// Tell (cwd-scoped) cannot express.
+func TellProject(project, slug, msg string) error {
+	dir, err := InboxDirForProjectName(project, slug)
+	if err != nil {
+		return err
+	}
+	return tellToDir(dir, slug, msg)
+}
+
+func tellToDir(dir, slug, msg string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
