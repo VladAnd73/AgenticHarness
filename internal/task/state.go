@@ -43,6 +43,17 @@ func InboxDirForProject(projectRoot, slug string) (string, error) {
 	return filepath.Join(s, slug, "inbox"), nil
 }
 
+// InboxDirForProjectName returns "<stateBase>/spore/<project>/<slug>/inbox"
+// from the project NAME directly, without resolving it from a git worktree.
+// Used to reach another project's inbox when only its name is known.
+func InboxDirForProjectName(project, slug string) (string, error) {
+	base, err := stateBaseDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "spore", project, slug, "inbox"), nil
+}
+
 // CoordinatorStateDir returns the state root used by the singleton
 // coordinator inboxes.
 func CoordinatorStateDir() (string, error) {

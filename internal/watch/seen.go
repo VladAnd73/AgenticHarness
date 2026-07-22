@@ -25,6 +25,11 @@ func Key(pr int, sha, check string) string {
 }
 
 func statePath(project string) (string, error) {
+	return stateFile(project, "pr-watch.json")
+}
+
+// stateFile resolves a per-project state file under the spore state dir.
+func stateFile(project, name string) (string, error) {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		home := os.Getenv("HOME")
@@ -33,7 +38,7 @@ func statePath(project string) (string, error) {
 		}
 		base = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(base, "spore", project, "pr-watch.json"), nil
+	return filepath.Join(base, "spore", project, name), nil
 }
 
 func LoadState(project string) (*State, error) {
@@ -77,17 +82,22 @@ func (s *State) Prune(liveKeys map[string]bool) {
 }
 
 func (s *State) Save() error {
-	dir := filepath.Dir(s.path)
+	return writeJSONAtomic(s.path, "pr-watch", s)
+}
+
+// writeJSONAtomic marshals v to path via a same-directory temp file and an
+// atomic rename, so a crash mid-write cannot corrupt the live state file.
+// tmpPrefix names the temp file for easy identification of a stray write.
+func writeJSONAtomic(path, tmpPrefix string, v any) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(s, "", "  ")
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	// Write to a temp file in the same directory, then rename atomically so a
-	// crash mid-write cannot corrupt the live state file.
-	tmp, err := os.CreateTemp(dir, ".pr-watch-*.json")
+	tmp, err := os.CreateTemp(dir, "."+tmpPrefix+"-*.json")
 	if err != nil {
 		return err
 	}
@@ -100,5 +110,5 @@ func (s *State) Save() error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), s.path)
+	return os.Rename(tmp.Name(), path)
 }
