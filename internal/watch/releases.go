@@ -5,10 +5,11 @@ import (
 	"os"
 )
 
-// defaultReleaseInstruction is the generic KB-sync wording used when the
-// [releases] config sets no instruction. It names no skill; consumers that
-// want a skill-specific instruction set one in their watch.toml.
-const defaultReleaseInstruction = "Start a worker to sync the Notion Product Knowledge KB for this release."
+// defaultReleaseInstruction is the generic wording used when the [releases]
+// config sets no instruction. The kernel stays generic: it names no skill and
+// no consumer-specific system. A consumer that wants tailored wording sets
+// instruction in its watch.toml.
+const defaultReleaseInstruction = "Start a worker to sync the knowledge base for this release."
 
 // ReleaseReport summarizes a release-watch run: pokes fired (one per
 // coordinator per newly released repo) and repos whose tag was unchanged.
@@ -32,7 +33,7 @@ func RunReleases(projectRoot, project string, dryRun bool,
 	if err != nil || !cfg.Enabled {
 		return rep, err
 	}
-	st, err := LoadState(project)
+	st, err := LoadReleaseState(project)
 	if err != nil {
 		return rep, err
 	}
@@ -55,18 +56,24 @@ func RunReleases(projectRoot, project string, dryRun bool,
 		if !found {
 			continue // zero releases: benign, nothing to report
 		}
-		prev, seen := st.ReleaseTag(repo)
+		prev, seen := st.Tag(repo)
 		if !seen {
 			// First observation: seed the baseline silently, do not poke, so
 			// installing the watcher (or adding a repo) is not a poke storm.
 			if !dryRun {
-				st.MarkRelease(repo, rel.TagName)
+				st.Mark(repo, rel.TagName)
 				dirty = true
 			}
 			continue
 		}
 		if prev == rel.TagName {
 			rep.Unchanged++
+			continue
+		}
+		if len(cfg.Coordinators) == 0 {
+			// A new release but nobody to notify: leave the tag unadvanced so
+			// the release still fires once a coordinator is configured, rather
+			// than being silently consumed by an empty notify loop.
 			continue
 		}
 
@@ -88,7 +95,7 @@ func RunReleases(projectRoot, project string, dryRun bool,
 			}
 			rep.Pokes++
 		}
-		st.MarkRelease(repo, rel.TagName)
+		st.Mark(repo, rel.TagName)
 		dirty = true
 	}
 

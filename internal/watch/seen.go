@@ -17,10 +17,6 @@ type State struct {
 	NotifiedSig string `json:"notified_sig,omitempty"`
 	NotifiedAt  string `json:"notified_at,omitempty"`
 
-	// Releases is the last-notified release tag per watched repo, keyed by
-	// owner/repo. Used by the release-watcher; absent from pr-only state.
-	Releases map[string]string `json:"releases,omitempty"`
-
 	path string
 }
 
@@ -29,6 +25,11 @@ func Key(pr int, sha, check string) string {
 }
 
 func statePath(project string) (string, error) {
+	return stateFile(project, "pr-watch.json")
+}
+
+// stateFile resolves a per-project state file under the spore state dir.
+func stateFile(project, name string) (string, error) {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		home := os.Getenv("HOME")
@@ -37,7 +38,7 @@ func statePath(project string) (string, error) {
 		}
 		base = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(base, "spore", project, "pr-watch.json"), nil
+	return filepath.Join(base, "spore", project, name), nil
 }
 
 func LoadState(project string) (*State, error) {
@@ -72,21 +73,6 @@ func (s *State) MarkKey(key string) {
 	s.Seen[key] = time.Now().UTC().Format(time.RFC3339)
 }
 
-// ReleaseTag returns the last-notified release tag for repo (owner/repo) and
-// whether it has ever been observed.
-func (s *State) ReleaseTag(repo string) (string, bool) {
-	tag, ok := s.Releases[repo]
-	return tag, ok
-}
-
-// MarkRelease records tag as the last-notified release for repo.
-func (s *State) MarkRelease(repo, tag string) {
-	if s.Releases == nil {
-		s.Releases = map[string]string{}
-	}
-	s.Releases[repo] = tag
-}
-
 func (s *State) Prune(liveKeys map[string]bool) {
 	for k := range s.Seen {
 		if !liveKeys[k] {
@@ -96,17 +82,22 @@ func (s *State) Prune(liveKeys map[string]bool) {
 }
 
 func (s *State) Save() error {
-	dir := filepath.Dir(s.path)
+	return writeJSONAtomic(s.path, "pr-watch", s)
+}
+
+// writeJSONAtomic marshals v to path via a same-directory temp file and an
+// atomic rename, so a crash mid-write cannot corrupt the live state file.
+// tmpPrefix names the temp file for easy identification of a stray write.
+func writeJSONAtomic(path, tmpPrefix string, v any) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(s, "", "  ")
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	// Write to a temp file in the same directory, then rename atomically so a
-	// crash mid-write cannot corrupt the live state file.
-	tmp, err := os.CreateTemp(dir, ".pr-watch-*.json")
+	tmp, err := os.CreateTemp(dir, "."+tmpPrefix+"-*.json")
 	if err != nil {
 		return err
 	}
@@ -119,5 +110,5 @@ func (s *State) Save() error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), s.path)
+	return os.Rename(tmp.Name(), path)
 }
