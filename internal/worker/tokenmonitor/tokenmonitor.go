@@ -5,10 +5,9 @@
 // fires a wrap-up reminder so the worker can flush progress to its
 // tasks/<slug>.md and let the fleet reconciler resume it.
 //
-// The threshold is tier-keyed: max-tier sessions wrap at 180k (20k
-// headroom under the 200k quality cliff); sub-max sessions wrap at
-// 120k to dodge the 150k hard block. Tier defaults to non-max so a
-// session with an unknown tier wraps at the safer cap.
+// The threshold is tier-keyed: max-tier sessions wrap at 240k,
+// sub-max sessions at 180k. Tier defaults to non-max so a session
+// with an unknown tier wraps at the safer (lower) cap.
 //
 // The worker monitor skips any session whose inbox is under the
 // coordinator state dir (those are owned by the coordinator monitor)
@@ -25,8 +24,8 @@ import (
 )
 
 const (
-	DefaultWrapMax = 180000
-	DefaultWrapSub = 120000
+	DefaultWrapMax = 240000
+	DefaultWrapSub = 180000
 )
 
 type Config struct {
@@ -158,9 +157,9 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 	result.ShouldFire = true
 	var reason string
 	if cfg.Tier == "max" {
-		reason = fmt.Sprintf("Quality degrades past 200k on max; %d leaves 20k headroom to flush.", wrap)
+		reason = fmt.Sprintf("Max tier; %d-token wrap cap reached, flush before quality degrades.", wrap)
 	} else {
-		reason = "Sub-max account; the 150k hard block is close."
+		reason = fmt.Sprintf("Non-max tier; %d-token wrap cap reached, flush before the window fills.", wrap)
 	}
 	result.Message = fmt.Sprintf(
 		"WORKER TOKEN MONITOR (wrap): context %d tokens >= wrap cap %d on tier=%s.\n"+

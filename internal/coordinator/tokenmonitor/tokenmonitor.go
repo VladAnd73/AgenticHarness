@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	DefaultSoftCap = 150000
-	DefaultHardCap = 190000
+	DefaultSoftCap = 210000
+	DefaultHardCap = 250000
 
 	// coordinatorRespawnCommand is the tmux command surfaced to the
 	// coordinator agent on soft/hard cap. respawn-pane -k re-execs the
