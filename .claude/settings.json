@@ -3,6 +3,9 @@
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
   },
+  "permissions": {
+    "deny": ["SendMessage", "ListAgents"]
+  },
   "hooks": {
     "Stop": [
       {
