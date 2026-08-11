@@ -41,6 +41,79 @@ func TestHandoverSettingsWireCommunicationHooks(t *testing.T) {
 	}
 }
 
+func TestHandoverSettingsDeniesCrossSessionMessaging(t *testing.T) {
+	raw, err := os.ReadFile("bootstrap/handover/settings.json")
+	if err != nil {
+		t.Fatalf("read handover settings: %v", err)
+	}
+	var settings struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+		Hooks map[string][]handoverHookGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("parse handover settings: %v", err)
+	}
+
+	for _, want := range []string{"SendMessage", "ListAgents"} {
+		if !contains(settings.Permissions.Deny, want) {
+			t.Fatalf("handover settings permissions.deny missing %q; got %v", want, settings.Permissions.Deny)
+		}
+	}
+
+	// Adding permissions must not clobber the wired hooks (scenario 2:
+	// no-clobber). The dedicated hook test covers each entry; here we
+	// just confirm the block survived alongside the new permissions.
+	if len(settings.Hooks) == 0 {
+		t.Fatal("handover settings lost its hooks block when permissions were added")
+	}
+
+	// crossSessionInbound is NOT in the pre-2.1.224 settings schema, so a
+	// consumer on older claude-code would fail validation. It must stay
+	// absent from this single static file shipped to every consumer.
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("parse handover settings top-level: %v", err)
+	}
+	if _, ok := top["crossSessionInbound"]; ok {
+		t.Fatal("handover settings ships crossSessionInbound unconditionally; breaks consumers on claude-code < 2.1.224")
+	}
+}
+
+// TestBundledHandoverShipsCrossSessionDeny reads the settings through the
+// embedded filesystem that ships inside the spore binary (the exact bytes
+// `spore infect` installs onto a consumer), not the loose source file, so
+// it proves the shipped artifact carries the deny list and parses cleanly.
+func TestBundledHandoverShipsCrossSessionDeny(t *testing.T) {
+	raw, err := BundledHandover.ReadFile("bootstrap/handover/settings.json")
+	if err != nil {
+		t.Fatalf("read embedded handover settings: %v", err)
+	}
+	var settings struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("embedded settings.json is not valid JSON: %v", err)
+	}
+	for _, want := range []string{"SendMessage", "ListAgents"} {
+		if !contains(settings.Permissions.Deny, want) {
+			t.Fatalf("embedded handover settings permissions.deny missing %q; got %v", want, settings.Permissions.Deny)
+		}
+	}
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
 type handoverHookGroup struct {
 	Hooks []handoverHook `json:"hooks"`
 }
