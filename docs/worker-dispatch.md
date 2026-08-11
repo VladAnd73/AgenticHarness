@@ -49,6 +49,36 @@ the landed `main` branch is published upstream.
   Tmux windows are the only sanctioned channel for long-running
   jobs.
 
+## Cross-session messaging is denied by default
+
+Claude Code 2.1.224+ ships native cross-session messaging
+(`SendMessage` / `ListAgents` tools, on by default). It is ephemeral:
+messages live in a per-run socket and vanish on respawn, so they are
+not in spore's durable inbox. Autonomous workers that drift to it
+lose coordination the moment the tmux window recycles.
+
+The shipped consumer settings (`bootstrap/handover/settings.json`)
+therefore carry `permissions.deny: ["SendMessage", "ListAgents"]`.
+This keeps every fleet routing through `spore task tell` (durable,
+slug-addressed, survives respawn). The deny list is valid on all
+current settings-schema versions and is inert on claude-code before
+2.1.224, where the tools do not exist yet, so it ships
+unconditionally.
+
+Two consequences a future maintainer must know:
+
+- Denying `SendMessage` also removes messaging to subagents and
+  agent-team teammates (same tool). spore uses fire-and-forget
+  subagent dispatch, so this is acceptable today. An agent-teams
+  adopter who needs teammate messaging would have to relax this.
+- The receive-side counterpart `crossSessionInbound: "refuse"` is
+  **deferred**, not shipped. It is absent from the pre-2.1.224
+  settings schema, so shipping it in this single static file would
+  fail settings validation for any consumer on older claude-code.
+  There is no per-consumer version gate in a flat handover file. Add
+  it only once every consumer is guaranteed >= 2.1.224, or behind a
+  render-time gate that knows the target's claude-code version.
+
 ## Agent Selection
 
 `tasks/<slug>.md` frontmatter controls the worker process. With no
