@@ -28,3 +28,7 @@
 # would create a drift target. Downstream consumers (no embed source
 # in-tree) commit their .claude/skills/; spore-as-project does not.
 /.claude/skills/
+# Implementation plans are scaffolding, not documentation: on disk for
+# the run, deleted once executed. Workers get plan content through their
+# brief. The spec each plan serves stays tracked. See rules/core/tier-policy.md.
+/docs/todo/*-plan.md
