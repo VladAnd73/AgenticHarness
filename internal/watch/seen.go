@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/versality/spore/internal/statefile"
 )
 
 type State struct {
@@ -28,17 +29,10 @@ func statePath(project string) (string, error) {
 	return stateFile(project, "pr-watch.json")
 }
 
-// stateFile resolves a per-project state file under the spore state dir.
+// stateFile and writeJSONAtomic stay as unexported delegates so the rest
+// of this package keeps calling the names it always has.
 func stateFile(project, name string) (string, error) {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home := os.Getenv("HOME")
-		if home == "" {
-			return "", fmt.Errorf("neither XDG_STATE_HOME nor HOME set")
-		}
-		base = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(base, "spore", project, name), nil
+	return statefile.Path(project, name)
 }
 
 func LoadState(project string) (*State, error) {
@@ -85,30 +79,6 @@ func (s *State) Save() error {
 	return writeJSONAtomic(s.path, "pr-watch", s)
 }
 
-// writeJSONAtomic marshals v to path via a same-directory temp file and an
-// atomic rename, so a crash mid-write cannot corrupt the live state file.
-// tmpPrefix names the temp file for easy identification of a stray write.
 func writeJSONAtomic(path, tmpPrefix string, v any) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+tmpPrefix+"-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return statefile.WriteJSONAtomic(path, tmpPrefix, v)
 }
