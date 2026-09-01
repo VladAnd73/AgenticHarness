@@ -16,17 +16,20 @@
   outputs =
     { self, nixpkgs, flake-utils, home-manager, claude-code }:
     let
-      # nixpkgs (even master) still packages go1.26.4; go1.26.5 is the
-      # first stdlib release that fixes GO-2026-5856 (crypto/tls), which
-      # govulncheck flags as reachable via internal/infect and
-      # internal/budget. Pin the toolchain to 1.26.5 from the upstream
-      # source tarball until nixpkgs catches up, then drop this overlay.
+      # The pinned nixpkgs still packages go1.26.3. Pin the toolchain to
+      # the current upstream patch release from its source tarball until
+      # nixpkgs catches up, then drop this overlay. The floor moves with
+      # the stdlib advisories govulncheck flags as reachable: 1.26.5 for
+      # GO-2026-5856 (crypto/tls), and 1.26.6 for GO-2026-6218 (net/url),
+      # GO-2026-6090 (crypto/tls), GO-2026-5972 (encoding/asn1) and
+      # GO-2026-5026 (net/http). Keep the spore-toolchain check's `min`
+      # in step with this version.
       goToolchainOverlay = final: prev: {
         go = prev.go.overrideAttrs (_old: {
-          version = "1.26.5";
+          version = "1.26.7";
           src = prev.fetchurl {
-            url = "https://go.dev/dl/go1.26.5.src.tar.gz";
-            hash = "sha256-SVvkvIcXasVnOS5bQRar2YRm0z17SdQedkzMaXay3EI=";
+            url = "https://go.dev/dl/go1.26.7.src.tar.gz";
+            hash = "sha256-DtJOrHVRBQhbif6cq8J0K5GgrXuUtZ0602SRjryJVq0=";
           };
         });
       };
@@ -218,15 +221,16 @@
             # not pkgs.go, so overlaying the toolchain only reaches the
             # devshell unless buildGoModule is told to use it too. Read the
             # Go version embedded in the SHIPPED binary and fail if it is
-            # older than the vuln-clear floor (GO-2026-5856, crypto/tls,
-            # fixed in 1.26.5). A source-only or devshell-only check misses
-            # this, which is how PR #8 went green with a still-vulnerable
-            # artifact.
+            # older than the vuln-clear floor (currently 1.26.6, the first
+            # release clear of GO-2026-6218 / 6090 / 5972 / 5026; see the
+            # goToolchainOverlay comment). A source-only or devshell-only
+            # check misses this, which is how PR #8 went green with a
+            # still-vulnerable artifact.
             spore-toolchain = pkgs.runCommand "spore-toolchain"
               {
                 nativeBuildInputs = [ pkgs.go ];
               } ''
-              min="1.26.5"
+              min="1.26.6"
               ver="$(go version ${spore}/bin/spore \
                 | grep -oE 'go[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^go//')"
               echo "artifact go toolchain: $ver (require >= $min)"
