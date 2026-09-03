@@ -2,9 +2,11 @@ package watch
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +25,15 @@ type ReleasesConfig struct {
 	// poke message body. Empty means use the default. The kernel names no
 	// skill; a consumer's config supplies its own skill-specific wording.
 	Instruction string
+}
+
+// DreamsConfig is the [dreams] table: whether nightly dreaming runs for this
+// project, and the three knobs that bound one run.
+type DreamsConfig struct {
+	Enabled             bool
+	DeepReadCap         int
+	MaxWritesPerRun     int
+	RecurrenceThreshold int
 }
 
 func LoadConfig(project string) (Config, error) {
@@ -53,6 +64,53 @@ func LoadReleasesConfig(project string) (ReleasesConfig, error) {
 		Coordinators: parseStringList(rel["coordinators"]),
 		Instruction:  parseScalarString(rel["instruction"]),
 	}, nil
+}
+
+// LoadDreamsConfig reads the [dreams] table. A missing file or absent section
+// means disabled; the numeric knobs still carry their defaults so a table that
+// only sets enabled behaves sensibly. An unparseable or negative knob is an
+// error rather than a silent fallback: nothing else tells an operator that
+// their typo left an unattended feature running on defaults.
+func LoadDreamsConfig(project string) (DreamsConfig, error) {
+	sections, err := readWatchToml(project)
+	if err != nil {
+		return DreamsConfig{}, err
+	}
+	d := sections["dreams"]
+	cfg := DreamsConfig{Enabled: parseScalarString(d["enabled"]) == "true"}
+	for _, knob := range []struct {
+		key string
+		def int
+		out *int
+	}{
+		{"deep_read_cap", 3, &cfg.DeepReadCap},
+		{"max_writes_per_run", 10, &cfg.MaxWritesPerRun},
+		{"recurrence_threshold", 2, &cfg.RecurrenceThreshold},
+	} {
+		n, err := parseIntDefault(d[knob.key], knob.def)
+		if err != nil {
+			return DreamsConfig{}, fmt.Errorf("[dreams] %s: %w", knob.key, err)
+		}
+		*knob.out = n
+	}
+	return cfg, nil
+}
+
+// parseIntDefault returns def for an absent key. Zero is a legal setting
+// ("do none of this"); a negative or unparseable value is a typo.
+func parseIntDefault(val string, def int) (int, error) {
+	val = parseScalarString(val)
+	if val == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, fmt.Errorf("want integer, got %q", val)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("must be >= 0, got %d", n)
+	}
+	return n, nil
 }
 
 // readWatchToml parses watch.toml into a section -> key -> raw-value map. The
