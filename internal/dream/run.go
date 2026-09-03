@@ -16,15 +16,26 @@ import (
 // digest calls it a retry loop.
 const repeatThreshold = 3
 
-// defaultDeepReadCap and defaultDigestBudget are what a caller that names
-// neither gets. The budget is in bytes and only ever binds on a run with
-// no watermark: measured on this host, one project's nightly digest is
-// 31 KB and its seven-day digest is 61 KB, while the whole corpus at once
-// is 354 KB.
-const (
-	defaultDeepReadCap  = 5
-	defaultDigestBudget = 120000
-)
+// DefaultDeepReadCap is how many sessions a run reads deeply when the
+// caller names no cap. internal/watch's [dreams] deep_read_cap default
+// has to be this same number, because the CLI passes the config value
+// straight into Options.DeepReadCap: two different constants means the
+// one a reader finds is not the one that runs. They already drifted
+// once, 5 here against 3 there, and
+// TestDefaultDeepReadCapMatchesTheWatchConfigDefault fails if they
+// drift again.
+//
+// Five rather than three because the bar for an inferred claim is two
+// independent sessions. Three deep reads leave that bar binding on the
+// count instead of on the evidence: one weak session and the night can
+// corroborate nothing. Five leaves room for two corroborated pairs.
+const DefaultDeepReadCap = 5
+
+// defaultDigestBudget is in bytes and only ever binds on a run with no
+// watermark: measured on this host, one project's nightly digest is
+// 31 KB and its seven-day digest is 61 KB, while the whole corpus at
+// once is 354 KB.
+const defaultDigestBudget = 120000
 
 // omittedListLimit bounds the roll call of dropped sessions. Naming all
 // 327 that a first run on this host drops costs 29 KB, which is a
@@ -248,7 +259,7 @@ func loadWatermark(path string) watermark {
 
 func deepReadCap(opts Options) int {
 	if opts.DeepReadCap == 0 {
-		return defaultDeepReadCap
+		return DefaultDeepReadCap
 	}
 	return opts.DeepReadCap
 }

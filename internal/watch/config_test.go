@@ -86,7 +86,7 @@ func TestLoadDreamsConfigDefaultsWhenAbsent(t *testing.T) {
 	if got.Enabled {
 		t.Fatal("a missing [dreams] table must mean disabled")
 	}
-	want := DreamsConfig{DeepReadCap: 3, MaxWritesPerRun: 10, RecurrenceThreshold: 2}
+	want := DreamsConfig{DeepReadCap: 5, MaxWritesPerRun: 10, RecurrenceThreshold: 2}
 	if got != want {
 		t.Fatalf("defaults not applied: %+v, want %+v", got, want)
 	}
@@ -100,7 +100,7 @@ func TestLoadDreamsConfigEnabledOnlyKeepsNumericDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := DreamsConfig{Enabled: true, DeepReadCap: 3, MaxWritesPerRun: 10, RecurrenceThreshold: 2}
+	want := DreamsConfig{Enabled: true, DeepReadCap: 5, MaxWritesPerRun: 10, RecurrenceThreshold: 2}
 	if got != want {
 		t.Fatalf("config = %+v, want %+v", got, want)
 	}

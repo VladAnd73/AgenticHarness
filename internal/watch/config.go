@@ -83,7 +83,11 @@ func LoadDreamsConfig(project string) (DreamsConfig, error) {
 		def int
 		out *int
 	}{
-		{"deep_read_cap", 3, &cfg.DeepReadCap},
+		// deep_read_cap must default to dream.DefaultDeepReadCap. Not
+		// imported, because watch would then pull the whole dream
+		// package and its embedded briefs into every build that reads
+		// a config; dream's own test pins the two numbers together.
+		{"deep_read_cap", 5, &cfg.DeepReadCap},
 		{"max_writes_per_run", 10, &cfg.MaxWritesPerRun},
 		{"recurrence_threshold", 2, &cfg.RecurrenceThreshold},
 	} {
