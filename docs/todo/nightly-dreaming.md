@@ -1,5 +1,13 @@
-**Status**: designed, not started. Spec approved by the operator
-2026-08-31; no implementation task minted yet.
+**Status**: partly implemented 2026-09-03, not deployed. Stages 1 and 2
+are built and tested (discover, digest, score, ledger, snapshot/revert,
+the `[dreams]` config table, the embedded briefs, the mint, the composed
+run, and `spore dream digest|runs|revert|rewind`). **Stages 3, 4 and 5
+are not built**: nothing runs the proposer's output through a reviewer
+and nothing writes into the harness, so `enabled = true` means
+unreviewed proposals. No project is enabled and no unit is installed on
+any host. To deploy, see
+[nightly-dreaming-deploy.md](nightly-dreaming-deploy.md). Named
+follow-ups are under "Follow-ups" below.
 
 # nightly dreaming: learn from spore sessions
 
@@ -125,8 +133,8 @@ assistant reasoning are the bulk of the bytes and hold the least signal.
 
 Each session is then scored for deep-read priority on error density,
 operator turn count, length, and whether it ended blocked or failed. The
-top `deep_read_cap` sessions per project (default 3) are flagged. The cap
-is enforced in Go so the worker cannot widen it.
+top `deep_read_cap` sessions per project (default 5, see Configuration)
+are flagged. The cap is enforced in Go so the worker cannot widen it.
 
 Layout per run:
 
@@ -259,21 +267,109 @@ precedent:
 
     [dreams]
     enabled = true
-    deep_read_cap = 3
+    deep_read_cap = 5
     max_writes_per_run = 10
     recurrence_threshold = 2
+
+The values shown are the defaults. `deep_read_cap` is 5 rather than the
+3 this spec first named: the bar for an inferred claim is two
+independent sessions, and three deep reads make that count the binding
+constraint rather than the evidence. The number lives in two places
+(`internal/dream.DefaultDeepReadCap` and the `[dreams]` default in
+`internal/watch/config.go`) because the CLI passes the config value
+straight through, and
+`TestDefaultDeepReadCapMatchesTheWatchConfigDefault` fails if they ever
+disagree again.
 
 Kernel defaults must name no project and no skill, matching the rule the
 release watcher already follows.
 
 ## Deploy
 
-Mirrors the release watcher exactly. A user timer
-`spore-dream-<project>.{service,timer}` at 03:00 local, running the
-local binary `~/.local/bin/spore-evolve` (rebuilt with
-`nix develop -c go build -o ~/.local/bin/spore-evolve ./cmd/spore`).
-No sudo, no host rebuild: the watch stack always runs the local binary.
-The worker half needs no deploy, since it goes through the normal fleet.
+See [nightly-dreaming-deploy.md](nightly-dreaming-deploy.md). It was
+verified on a live host on 2026-09-03 by installing the units, firing
+them from a real timer, and reading the journal.
+
+Summary: one hand-installed user oneshot per project,
+`spore-dream-<project>.{service,timer}`, `OnCalendar=*-*-* 03:00:00`
+with `RandomizedDelaySec=15min` and `Persistent=false`, no `Restart=`,
+no path unit, running the local binary `~/.local/bin/spore-evolve`. No
+sudo and no host rebuild. The worker half needs no deploy, since it goes
+through the normal fleet.
+
+Two things this spec got wrong and the deploy note corrects. First,
+rebuilding `~/.local/bin/spore-evolve` re-points every other
+hand-installed watcher unit on the host at the new build in one step, so
+it must only ever be rebuilt from `main`. Second, `spore dream revert`
+is not the undo for a bad night: a digest run snapshots nothing, so
+reverting one fails by design. The undo is to clear the minted task and
+then `spore dream rewind`.
+
+## Follow-ups
+
+Each of these came out of building stages 1 and 2. None is built. The
+numbers are measured on this host unless stated.
+
+1. **Build the prune.** Nothing reaps run directories under
+   `$XDG_STATE_HOME/spore/<project>/dreams/`. A first run over a whole
+   corpus wrote 33,494 bytes; an incremental one-session night wrote
+   1,449 bytes, so steady state is roughly 1.5 KB to a few KB per night
+   per project. This needs new Go and the rule cannot be "keep the
+   newest K" or "older than N days" alone: the minted proposer reads the
+   run directory and the fleet spawns it about 0.4 seconds after the
+   mint, so the rule has to be "older than N days AND its minted task is
+   done or gone from `tasks/`".
+2. **Move three formats back into the packages that own them.**
+   `cmd/spore/dream_cmd.go` currently redeclares all three.
+   `dream.Rewind` is the urgent one: the CLI holds its own copy of the
+   three-field watermark struct, so a rename inside `internal/dream`
+   would leave rewind writing the old field names and the next night
+   silently re-reading the whole corpus.
+   `TestRewindRoundTripsTheWatermarkFormatDreamRunWrites` in
+   `cmd/spore` now fails loudly if that happens, but the duplicate is
+   still there. The other two are `dream.ListRuns` (the CLI decodes the
+   manifest's `created_at` itself) and an exported watch-config path
+   (the CLI recomputes `watch.toml`'s location in `watchTomlPath`).
+3. **`RevertWithReport` creates the run directory before it looks for a
+   manifest.** `internal/dream/backup.go:278` calls `RunDir`, which
+   `MkdirAll`s, so asking to revert a run id nobody has heard of creates
+   it. The CLI works around it with a stat-first guard
+   (`cmd/spore/dream_cmd.go`); the defect is still in the package.
+4. **`previous` holds exactly one step.** `internal/dream/run.go:232`
+   writes `previous` from the value it is replacing and keeps no further
+   history, so two consecutive nights whose tasks are never judged lose
+   the older night irrecoverably and `rewind` cannot reach it.
+5. **The adversarial reviewer stage does not exist.** The proposer brief
+   is embedded and a reviewer brief is embedded
+   (`internal/dream/briefs/`), but no code runs the reviewer. Until it
+   does, `[dreams] enabled = true` means unreviewed proposals reaching a
+   real fleet about 0.4 seconds after the mint.
+6. **Discovery fails silently in several ways, and each looks like a
+   quiet night.** `Discover` returns `nil, nil` when the projects root
+   is missing (`internal/dream/discover.go:50`). `classify` swallows
+   per-file errors (`discover.go:69`). The coordinator marker depends on
+   the shared seed file's literal first line `# Coordinator role`
+   (`discover.go:26`); the run does warn when it finds no coordinator at
+   all, which is the only signal that the marker has drifted. An 8 MB
+   JSONL line truncates a session's timestamps rather than erroring
+   (`discover.go:91`).
+7. **The two-tier evidence bar has no Go caller.** `Ledger.Observe`,
+   `Ledger.Gate` and `Ledger.Record` are written and tested, but the
+   only ledger call the nightly run makes is `LoadLedger` plus
+   `formatKnownClaims`, which is read-only. The bar is enforced today
+   only by prose in the proposer brief. Whichever task builds stage 3
+   has to wire them in.
+8. **Nothing caps the minted-task backlog.** `MintTask` writes an active
+   task unconditionally, so consecutive nights accumulate one active
+   dream task each and the fleet works through all of them. Observed:
+   three active dream task files after three runs.
+9. **`deep_read_cap = 0` does not mean zero.** `internal/watch` accepts
+   0 and documents it as a legal "do none of this", but
+   `internal/dream`'s `deepReadCap` treats a zero `Options.DeepReadCap`
+   as "no cap named" and substitutes `DefaultDeepReadCap`. There is
+   currently no way to express "no deep reads" through config. Fixing it
+   means changing the documented meaning of a zero `Options` field, so
+   it did not belong in a docs commit.
 
 ## Acceptance scenarios
 
