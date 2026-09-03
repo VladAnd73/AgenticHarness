@@ -52,7 +52,7 @@ func TestFlagDeepReadsScoresEveryDigest(t *testing.T) {
 		Session:          Session{Slug: "a"},
 		Failures:         []Slice{{}, {}},
 		OperatorMessages: []Slice{{}, {}, {}},
-		Denials:          []Slice{{}},
+		OperatorRefusals: []Slice{{}},
 		RepeatedCommands: []Slice{{}, {}, {}, {}},
 		End:              "tokens",
 	}}

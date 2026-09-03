@@ -41,7 +41,7 @@ func FlagDeepReads(ds []SessionDigest, cap int) {
 
 func score(d SessionDigest) int {
 	s := 3*len(d.Failures) + 2*len(d.OperatorMessages) +
-		2*len(d.Denials) + len(d.RepeatedCommands)
+		2*len(d.OperatorRefusals) + len(d.RepeatedCommands)
 	if d.End == "blocked" || d.End == "tokens" {
 		s += 5
 	}

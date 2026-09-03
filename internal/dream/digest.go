@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Slice struct {
@@ -23,7 +24,8 @@ type SessionDigest struct {
 	OperatorMessages []Slice
 	Failures         []Slice
 	RepeatedCommands []Slice
-	Denials          []Slice
+	OperatorRefusals []Slice
+	HookFeedback     []Slice
 	FinalReport      string
 	End              string
 	Score            int
@@ -35,15 +37,18 @@ type SessionDigest struct {
 // (skill bodies, task notifications, Stop-hook feedback) rather than the
 // operator speaking, and only isMeta and promptSource tell them apart.
 type digestEntry struct {
-	Type         string          `json:"type"`
-	Timestamp    string          `json:"timestamp"`
-	IsMeta       bool            `json:"isMeta"`
-	PromptSource string          `json:"promptSource"`
-	Message      json.RawMessage `json:"message"`
+	Type           string          `json:"type"`
+	Timestamp      string          `json:"timestamp"`
+	IsMeta         bool            `json:"isMeta"`
+	PromptSource   string          `json:"promptSource"`
+	ToolUseResult  json.RawMessage `json:"toolUseResult"`
+	ToolDenialKind string          `json:"toolDenialKind"`
+	Message        json.RawMessage `json:"message"`
 }
 
 // BuildDigest keeps only the slices that carry a lesson: what the
-// operator said, what failed, what was retried, what was denied. The
+// operator said, what failed, what was retried, what the operator
+// refused, and, separately and unscored, what the harness blocked. The
 // bulk of a transcript is successful tool calls and reasoning, which is
 // dropped so a night's worth of sessions fits in a model's context.
 func BuildDigest(s Session, repeatThreshold int) (SessionDigest, error) {
@@ -69,10 +74,14 @@ func BuildDigest(s Session, repeatThreshold int) (SessionDigest, error) {
 		switch e.Type {
 		case "user":
 			if errText, isErr := toolError(e.Message); isErr {
-				if denied(errText) {
-					d.Denials = append(d.Denials,
-						Slice{Kind: "denial", TS: ts, Text: errText})
-				} else {
+				switch {
+				case operatorRefused(e, errText):
+					d.OperatorRefusals = append(d.OperatorRefusals,
+						Slice{Kind: "refusal", TS: ts, Text: errText})
+				case hookStopped(e, errText):
+					d.HookFeedback = append(d.HookFeedback,
+						Slice{Kind: "hook", TS: ts, Text: errText})
+				default:
 					d.Failures = append(d.Failures,
 						Slice{Kind: "tool-error", TS: ts, Text: errText})
 				}
@@ -85,11 +94,15 @@ func BuildDigest(s Session, repeatThreshold int) (SessionDigest, error) {
 			if wrapUp(text) {
 				sawWrapUp = true
 			}
-			if denied(text) {
-				d.Denials = append(d.Denials, Slice{Kind: "denial", TS: ts, Text: text})
-				continue
-			}
+			// The operator filter runs before any classification: a hook
+			// speaking through an injected user entry is marked as such,
+			// and reading its prose first is what put 630 of 733 harness
+			// messages in the operator-correction bucket.
 			if !operatorAuthored(e) {
+				if hookStopped(e, text) {
+					d.HookFeedback = append(d.HookFeedback,
+						Slice{Kind: "hook", TS: ts, Text: text})
+				}
 				continue
 			}
 			if d.Brief == "" {
@@ -192,16 +205,49 @@ func bashCommand(raw json.RawMessage) (string, bool) {
 	return "", false
 }
 
-// denied matches both an operator refusing a tool call and a hook
-// blocking one. Real transcripts deliver either as an is_error
-// tool_result, not as user text, so this is applied to both.
-func denied(text string) bool {
-	return strings.Contains(text, "permission to use") ||
-		strings.Contains(text, "requested permissions") ||
-		strings.Contains(text, "doesn't want to proceed with this tool use") ||
+// The CLI names how a stopped tool call was stopped in two top-level
+// fields. toolDenialKind is exact but recent: only about a third of the
+// stopped calls in the corpus carry it, and none of the older ones, so
+// the prose below stays as the fallback.
+const (
+	denialKindUser = "user-rejected"
+	denialKindRule = "permission-rule"
+	userRejected   = "User rejected tool use"
+)
+
+// operatorRefused reports whether a human stopped this tool call. It is
+// applied only to failed tool_results, because that is the only way a
+// real refusal arrives: the same prose in a user message is someone
+// quoting it, which is all three "permission to use" matches in the
+// corpus turned out to be.
+func operatorRefused(e digestEntry, text string) bool {
+	if e.ToolDenialKind != "" {
+		return e.ToolDenialKind == denialKindUser
+	}
+	return toolUseResultText(e.ToolUseResult) == userRejected ||
+		strings.Contains(text, "doesn't want to proceed with this tool use")
+}
+
+// hookStopped reports whether the harness stopped the call or was simply
+// talking to itself. Three shapes, all measured in the corpus: a
+// permission rule denying a tool, the tmux PreToolUse block, and the
+// built-in sleep guard, which frames its refusal as a tool_use_error.
+func hookStopped(e digestEntry, text string) bool {
+	if e.ToolDenialKind == denialKindRule {
+		return true
+	}
+	return strings.Contains(text, "must run in a tmux window") ||
+		strings.Contains(text, "<tool_use_error>Blocked: ") ||
 		strings.Contains(text, "blocked by hook") ||
-		strings.Contains(text, "hook feedback") ||
-		strings.Contains(text, "must run in a tmux window")
+		strings.Contains(text, "hook feedback")
+}
+
+func toolUseResultText(raw json.RawMessage) string {
+	var s string
+	if len(raw) == 0 || json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
 }
 
 // FormatDigest renders the digests as the markdown the proposer reads.
@@ -215,9 +261,72 @@ func FormatDigest(ds []SessionDigest) string {
 		writeSlices(&b, "Operator messages", d.OperatorMessages)
 		writeSlices(&b, "Failures", d.Failures)
 		writeSlices(&b, "Repeated commands", d.RepeatedCommands)
-		writeSlices(&b, "Denials", d.Denials)
+		writeSlices(&b, "Operator refusals", d.OperatorRefusals)
+		writeHookFeedback(&b, "Hook feedback (harness, not the operator)",
+			d.HookFeedback)
 	}
 	return b.String()
+}
+
+// hookShapeLimit caps what the hook bucket may spend of the reader's
+// context. It is scored zero, and rendering it in full cost 320 KB of a
+// 619 KB digest across 388 sessions: half the budget to say the same
+// three hooks fired again.
+const hookShapeLimit = 3
+
+// writeHookFeedback reports how often each hook fired rather than what
+// it said each time. The bucket is kept because a session blocked forty
+// times by one hook says something about the harness, but it says it
+// once.
+func writeHookFeedback(b *strings.Builder, title string, ss []Slice) {
+	if len(ss) == 0 {
+		return
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, s := range ss {
+		k := hookShape(s.Text)
+		if counts[k] == 0 {
+			order = append(order, k)
+		}
+		counts[k]++
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if counts[order[i]] != counts[order[j]] {
+			return counts[order[i]] > counts[order[j]]
+		}
+		return order[i] < order[j]
+	})
+	fmt.Fprintf(b, "### %s\n\n", title)
+	fmt.Fprintf(b, "- %d entries, %d distinct\n", len(ss), len(order))
+	for i, k := range order {
+		if i >= hookShapeLimit {
+			break
+		}
+		fmt.Fprintf(b, "- %dx %s\n", counts[k], k)
+	}
+	b.WriteString("\n")
+}
+
+// hookShape collapses a hook message to the part that repeats. The Stop
+// hook embeds a live token count, and in the coordinator's case a whole
+// worker report, in every message, so two firings of the same hook share
+// no text until the digits are normalised and the tail is cut.
+func hookShape(text string) string {
+	var b strings.Builder
+	prevDigit := false
+	for _, r := range strings.Join(strings.Fields(text), " ") {
+		if r >= '0' && r <= '9' {
+			if !prevDigit {
+				b.WriteByte('#')
+			}
+			prevDigit = true
+			continue
+		}
+		prevDigit = false
+		b.WriteRune(r)
+	}
+	return truncate(b.String(), 120)
 }
 
 func writeSlices(b *strings.Builder, title string, ss []Slice) {
@@ -232,9 +341,15 @@ func writeSlices(b *strings.Builder, title string, ss []Slice) {
 }
 
 func oneLine(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > 500 {
-		return s[:500] + " ..."
+	return truncate(strings.ReplaceAll(s, "\n", " "), 500)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	return s
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + " ..."
 }
