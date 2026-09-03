@@ -28,6 +28,8 @@ type SessionDigest struct {
 	HookFeedback     []Slice
 	FinalReport      string
 	End              string
+	Entries          int
+	Truncated        bool
 	Score            int
 	DeepRead         bool
 }
@@ -66,6 +68,10 @@ func BuildDigest(s Session, repeatThreshold int) (SessionDigest, error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
+		// Counted before the parse, so the total matches what a shell
+		// counts. It is the denominator of the proposer's coverage claim,
+		// and the proposer counts lines with wc, not with a JSON parser.
+		d.Entries++
 		var e digestEntry
 		if json.Unmarshal(sc.Bytes(), &e) != nil {
 			continue
@@ -120,6 +126,10 @@ func BuildDigest(s Session, repeatThreshold int) (SessionDigest, error) {
 			}
 		}
 	}
+	// A single JSONL line over the scanner's cap stops the scan where it
+	// stands. Recording it is what stops a partial session from being
+	// described as a whole one downstream.
+	d.Truncated = sc.Err() != nil
 	d.FinalReport = lastAssistant
 	d.End = endState(lastAssistant, sawWrapUp)
 	for cmd, n := range cmdCounts {
@@ -256,8 +266,14 @@ func FormatDigest(ds []SessionDigest) string {
 	for _, d := range ds {
 		fmt.Fprintf(&b, "## %s / %s (%s)\n\n", d.Session.Project,
 			d.Session.Slug, d.Session.Kind)
-		fmt.Fprintf(&b, "session: %s\nended: %s\ndeep-read: %v\n\n",
-			filepath.Base(d.Session.Path), d.End, d.DeepRead)
+		fmt.Fprintf(&b, "session: %s\nended: %s\nentries: %d\ndeep-read: %v\n",
+			filepath.Base(d.Session.Path), d.End, d.Entries, d.DeepRead)
+		if d.Truncated {
+			b.WriteString("incomplete: one entry was too large to read, " +
+				"so the scan stopped before the end of this session\n")
+		}
+		b.WriteString("\n")
+		writeAssignment(&b, d.Brief)
 		writeSlices(&b, "Operator messages", d.OperatorMessages)
 		writeSlices(&b, "Failures", d.Failures)
 		writeSlices(&b, "Repeated commands", d.RepeatedCommands)
@@ -266,6 +282,25 @@ func FormatDigest(ds []SessionDigest) string {
 			d.HookFeedback)
 	}
 	return b.String()
+}
+
+// briefLimit is what one session's opening assignment may spend. The
+// text is a whole task file for a worker and the whole shared role file
+// for a coordinator, and only its opening says what the session was for.
+const briefLimit = 400
+
+// writeAssignment prints what the session was told to do. The proposer
+// needs it to tell a session that discussed a lesson from one that
+// demonstrated it, and the heading has to say the text is not evidence,
+// because a task brief argues its own case better than any finding in
+// the file. The agent's closing report is deliberately not printed for
+// the same reason, and End already carries the only checkable fact in it.
+func writeAssignment(b *strings.Builder, brief string) {
+	if strings.TrimSpace(brief) == "" {
+		return
+	}
+	b.WriteString("### Opening assignment: what this session was asked to do, not evidence\n\n")
+	fmt.Fprintf(b, "%s\n\n", truncate(strings.ReplaceAll(brief, "\n", " "), briefLimit))
 }
 
 // hookShapeLimit caps what the hook bucket may spend of the reader's
