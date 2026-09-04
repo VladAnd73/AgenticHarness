@@ -43,9 +43,16 @@ const defaultDigestBudget = 120000
 // count and the top score above the list are the parts that matter.
 const omittedListLimit = 25
 
-// Options configures one nightly run. A zero DeepReadCap or DigestBudget
-// takes the default above; a negative one means no deep reads and no
-// budget respectively.
+// Options configures one nightly run. A zero DigestBudget takes the
+// default above; a negative one means no budget.
+//
+// DeepReadCap is a pointer because internal/watch documents its config
+// knob's zero as legal ("do none of this"), and the CLI passes that
+// value straight through: a plain int could not tell "the caller named
+// no cap" from "the caller named zero" and would silently turn an
+// operator's opt-out back into the default. A nil DeepReadCap takes
+// the default above; any pointed-to value, including a pointer to
+// zero, is used as given.
 type Options struct {
 	ProjectsRoot string
 	Home         string
@@ -53,7 +60,7 @@ type Options struct {
 	TasksDir     string
 	Now          time.Time
 	RunID        string
-	DeepReadCap  int
+	DeepReadCap  *int
 	DigestBudget int
 	DryRun       bool
 }
@@ -258,10 +265,10 @@ func loadWatermark(path string) watermark {
 }
 
 func deepReadCap(opts Options) int {
-	if opts.DeepReadCap == 0 {
+	if opts.DeepReadCap == nil {
 		return DefaultDeepReadCap
 	}
-	return opts.DeepReadCap
+	return *opts.DeepReadCap
 }
 
 func digestBudget(opts Options) int {

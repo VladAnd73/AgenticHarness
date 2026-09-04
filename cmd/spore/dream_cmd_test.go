@@ -433,6 +433,28 @@ func TestDreamDigestReportsTheConfiguredCapWhenNoFlagIsGiven(t *testing.T) {
 
 // Call 4: a human typing `spore dream digest` while the timer fires is
 // a realistic Tuesday, and two Run calls race on the watermark.
+// internal/watch documents deep_read_cap = 0 as a legal "do none of
+// this". The config layer already resolves an absent key to the
+// default, so by the time this value reaches dream.Options it is
+// always an explicit choice; the bug was dream.Options substituting
+// its own default back in for zero.
+func TestDreamDigestConfiguredZeroCapMeansNoDeepReads(t *testing.T) {
+	f := newDreamFixture(t)
+	f.enable(t, "deep_read_cap = 0")
+	f.correction(t, "fix-a", "2026-09-02")
+
+	code, out, errOut := f.digest(t)
+
+	if code != 0 {
+		t.Fatalf("digest exit = %d\n%s%s", code, out, errOut)
+	}
+	for _, want := range []string{"deep-read=0", "cap=0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary is missing %q, so an explicit zero cap was not honored:\n%s", want, out)
+		}
+	}
+}
+
 func TestDreamDigestSkipsWhenAnotherRunHoldsTheLock(t *testing.T) {
 	f := newDreamFixture(t)
 	f.enable(t)

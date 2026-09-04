@@ -138,7 +138,7 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 		TasksDir:     filepath.Join(cwd, "tasks"),
 		Now:          now,
 		RunID:        now.Format("20060102") + "-" + shortSuffix(now),
-		DeepReadCap:  deepCap,
+		DeepReadCap:  &deepCap,
 		DryRun:       *dryRun,
 	})
 	// Verdict first, detail after: the first line of a run in the
