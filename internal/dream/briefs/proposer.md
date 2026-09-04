@@ -122,6 +122,7 @@ directory:
          "where": "path/file.go:120",
          "what":  "the command that would prove this"}
       ],
+      "sessions": ["<id of every session your evidence for this claim came from>"],
       "coverage": "anchors read, entries seen out of entries present",
       "tier":     "lesson | memory | skill",
       "target":   "path the change would land in",
@@ -132,6 +133,21 @@ directory:
   reviewer can go and fetch it. A quote pasted into the packet carries
   no weight, because the reviewer has no way to tell it from something
   you composed.
+- `sessions` is what the gate counts independent sightings against. List
+  every distinct session your evidence cites, not just one. A claim
+  evidenced in two different sessions this same run clears the bar
+  tonight; a claim with one session in its list waits for a later night
+  to add a second one. An evidence item that names no session (a
+  file:line, a command) contributes nothing to this list.
+- `target` must be an absolute path, resolved against the project's main
+  checkout, never against your own worktree. Your worktree is a separate
+  directory that does not share untracked files like `state.md` or a
+  memory tree with the main checkout, so a relative path or one built
+  from your own working directory would silently miss the real file. Run
+  `git rev-parse --path-format=absolute --git-common-dir` and join
+  `..` to get the main checkout root, then build `target` from that.
+  For a `skill` tier packet, `target` only documents where the skill
+  would eventually be installed; it is never where this run writes it.
 - One claim per packet. A packet that makes two claims cannot be half
   confirmed, so it gets refused whole.
 - Aim at what a future agent would do differently. A claim nobody acts
@@ -179,8 +195,67 @@ If a lint, a hook or a changed default would enforce the claim better
 than prose would, say that in `text` and still propose the smallest
 note. Prose that repeats what a check could enforce gets ignored.
 
+Each tier fixes what `target` and `text` mean, because the write stage
+is plain code and does not interpret either field:
+
+- `lesson`: `target` is the project's `state.md`. `text` is the literal
+  heading and body to append, in the form the scanner already reads:
+  `### CRITICAL LESSON: <title> (<date>)` or `### RULE: <title>
+  (<date>)`, then the body. The write stage appends this verbatim; it
+  invents no heading and reformats nothing.
+- `memory`: `target` is the full path the new memory file should get,
+  ending in `.md`, inside the project's memory directory. `text` is the
+  whole file, frontmatter included (`name:`, `description:`,
+  `metadata: {type: ...}`), exactly as a memory file is written by
+  hand. The write stage reads `name` and `description` back out of your
+  frontmatter to build the one-line index entry it appends to
+  `MEMORY.md`, so both fields have to be present and accurate.
+- `skill`: `target` documents the path the skill would get once
+  installed (for the reviewer and the report to read); the write stage
+  never writes there. `text` is the proposed skill file. It always lands
+  under this run's `skill-proposals/`, named from `target`'s parent
+  directory.
+
 ## An empty night is a result
 
 If the sessions taught you nothing, write no packet and say so. A night
 with no lesson is cheaper than a night with a bad one, and a bad one
 outlives it.
+
+## After the packets: gate, review, write
+
+Writing packets is not the end of this task. You also run the review
+and the write, because no other stage exists to hand this off to. Do
+each step in order.
+
+1. **Gate.** Run `spore dream gate <run-id>`. It applies the two-tier
+   evidence bar to every packet you wrote and prints, per packet,
+   whether it cleared or was held. A held packet is not a failure: it is
+   a candidate waiting for a second independent session, and you do
+   nothing further with it this run.
+
+2. **Review, one cleared packet at a time.** For every packet gate
+   printed as cleared, spawn one subagent to review it, in a context
+   that cannot see anything about this session. Concretely:
+   - Get the reviewer brief text by running `spore dream reviewer-brief`.
+   - Build that subagent's entire prompt from exactly three things: the
+     reviewer brief text, the one packet's JSON, and the packet's
+     `target` path. Nothing else. Do not summarize the packet, explain
+     your reasoning, mention the other packets, or say what you already
+     believe about the claim: anything beyond those three things is
+     exactly the leak the reviewer brief asks the reviewer to refuse
+     over.
+   - The subagent's final answer is the verdict JSON the reviewer brief
+     describes. Write it verbatim to `verdicts/<n>.json` in this run
+     directory, matching the packet's own `<n>`.
+   - Do this for every cleared packet before moving on. A packet gate
+     held back gets no verdict file and is left alone.
+
+3. **Write.** Once every cleared packet has a verdict file, run `spore
+   dream write <run-id>`. It records every verdict, writes the confirmed
+   survivors (snapshotting every target first), and writes this run's
+   `report.md`. Read that summary; it is what the next step is about.
+
+4. **Tell the coordinator and finish.** Run `spore task tell coordinator
+   "<one-line summary of report.md>"`, then `spore task done
+   "$SPORE_TASK_SLUG"`, the same way any other worker task finishes.

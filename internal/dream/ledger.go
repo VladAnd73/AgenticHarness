@@ -151,6 +151,31 @@ func (l *Ledger) Gate(e *Entry, threshold int) bool {
 	return len(e.Sessions) >= threshold
 }
 
+// RevertRunLedger puts every entry a run wrote back to candidate,
+// clearing the run id that marked it written. Reverting a run's files
+// without this leaves the ledger believing those claims are already
+// written, so they never clear the gate again and a restored state.md
+// can never regain its lesson.
+func RevertRunLedger(project, runID string) error {
+	l, err := LoadLedger(project)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, e := range l.Entries {
+		if e.RunID != runID || e.Status != StatusWritten {
+			continue
+		}
+		e.Status = StatusCandidate
+		e.RunID = ""
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return l.Save()
+}
+
 func (l *Ledger) Record(fp string, st Status, reason, runID string) {
 	e, ok := l.Entries[fp]
 	if !ok {
