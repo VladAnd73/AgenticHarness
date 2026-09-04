@@ -1,11 +1,12 @@
-**Status**: partly implemented 2026-09-03, not deployed. Stages 1 and 2
-are built and tested (discover, digest, score, ledger, snapshot/revert,
-the `[dreams]` config table, the embedded briefs, the mint, the composed
-run, and `spore dream digest|runs|revert|rewind`). **Stages 3, 4 and 5
-are not built**: nothing runs the proposer's output through a reviewer
-and nothing writes into the harness, so `enabled = true` means
-unreviewed proposals. No project is enabled and no unit is installed on
-any host. To deploy, see
+**Status**: fully implemented 2026-09-04, not deployed. Stages 1-2
+(discover, digest, score, ledger, snapshot/revert, the `[dreams]` config
+table, the embedded briefs, the mint, the composed run, and `spore dream
+digest|runs|revert|rewind`) merged via PR #20. Stages 3-5 (gate the
+proposer's evidence packets against the ledger, spawn an independent
+adversarial reviewer per surviving packet, and write only `confirmed`
+survivors) merged via PR #21. `[dreams]` is enabled on no project yet;
+that flip is deliberately the operator's. No unit is installed on any
+host. To deploy, see
 [nightly-dreaming-deploy.md](nightly-dreaming-deploy.md). Named
 follow-ups are under "Follow-ups" below.
 
