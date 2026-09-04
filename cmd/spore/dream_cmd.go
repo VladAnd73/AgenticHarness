@@ -149,7 +149,26 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 	}
 	fmt.Fprintln(out, dreamSummary(rep, deepCap))
 	dreamWarnings(errOut, rep.Warnings)
+	if !*dryRun {
+		dreamPrune(out, errOut, project, filepath.Join(cwd, "tasks"), now)
+	}
 	return 0
+}
+
+// dreamPrune reaps run directories old enough that their minted task is
+// long past any plausible judging delay, and whose task is done or gone
+// from tasksDir. A failure here is a warning, not a run failure: it
+// costs a few KB of disk, not a night's work.
+func dreamPrune(out, errOut io.Writer, project, tasksDir string, now time.Time) {
+	prep, err := dream.Prune(project, tasksDir, now)
+	if err != nil {
+		fmt.Fprintf(errOut, "%s %s: prune: %v\n", dreamWarnToken, project, err)
+		return
+	}
+	if len(prep.Removed) > 0 {
+		fmt.Fprintf(out, "dream prune %s: removed %d run(s): %s\n",
+			project, len(prep.Removed), strings.Join(prep.Removed, ", "))
+	}
 }
 
 // dreamSummary is the one line every night leaves behind. It is

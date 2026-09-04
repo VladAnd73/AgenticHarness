@@ -431,6 +431,54 @@ func TestDreamDigestReportsTheConfiguredCapWhenNoFlagIsGiven(t *testing.T) {
 	}
 }
 
+// Nothing reaped old run directories, so every night's few KB
+// accumulated forever. A digest run must reclaim a run that is both
+// old enough to be past any plausible judging delay and whose minted
+// task is gone, without touching one whose task is still active.
+func TestDreamDigestPrunesOldRunsWithGoneOrDoneTasksButKeepsLiveOnes(t *testing.T) {
+	f := newDreamFixture(t)
+	f.enable(t)
+
+	gone, err := dream.RunDir(f.project, "20200101-gone0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := dream.RunDir(f.project, "20200101-live0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	for _, dir := range []string{gone, live} {
+		if err := os.Chtimes(dir, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	slug := task.Slugify("dream 20200101-live0")
+	m := frontmatter.Meta{Status: "active", Slug: slug, Title: "dream 20200101-live0", Project: f.project}
+	if err := os.WriteFile(filepath.Join(f.tasksDir, slug+".md"), frontmatter.Write(m, []byte("\nbody\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f.correction(t, "fix-a", "2026-09-02")
+	code, out, errOut := f.digest(t)
+
+	if code != 0 {
+		t.Fatalf("digest exit = %d\n%s%s", code, out, errOut)
+	}
+	if !strings.Contains(out, "20200101-gone0") {
+		t.Errorf("the prune must name what it removed:\n%s", out)
+	}
+	if strings.Contains(out, "20200101-live0") && strings.Contains(out, "removed") {
+		t.Errorf("a run with a still-active task must not be reported removed:\n%s", out)
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Errorf("run directory %s survived pruning", gone)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Errorf("run directory %s was pruned while its task is still active: %v", live, err)
+	}
+}
+
 // Call 4: a human typing `spore dream digest` while the timer fires is
 // a realistic Tuesday, and two Run calls race on the watermark.
 // internal/watch documents deep_read_cap = 0 as a legal "do none of
