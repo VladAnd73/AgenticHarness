@@ -3,6 +3,7 @@ package dream
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,9 +45,12 @@ func TestDiscoverClassifiesWorkerAndCoordinatorAndSkipsAdHoc(t *testing.T) {
 		"adhoc.jsonl",
 		userLine(home+"/proj", "2026-09-01T03:00:00Z", "hey can you look at this"))
 
-	got, err := Discover(root, home, time.Time{})
+	got, errs, err := Discover(root, home, time.Time{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected no per-file errors, got %+v", errs)
 	}
 	if len(got) != 2 {
 		t.Fatalf("expected 2 in-scope sessions, got %d: %+v", len(got), got)
@@ -84,7 +88,7 @@ func TestDiscoverExcludesAdHocSessionAtProjectRoot(t *testing.T) {
 		"adhoc.jsonl",
 		userLine(home+"/proj", "2026-09-01T03:00:00Z", "hey can you look at this"))
 
-	got, err := Discover(root, home, time.Time{})
+	got, _, err := Discover(root, home, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,11 +110,81 @@ func TestDiscoverSkipsSessionsAtOrBeforeWatermark(t *testing.T) {
 		userLine(home+"/proj/.worktrees/old", "2026-08-01T00:00:00Z", "# Goal"))
 
 	since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	got, err := Discover(root, home, since)
+	got, _, err := Discover(root, home, since)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected nothing after watermark, got %d", len(got))
+	}
+}
+
+// A projects root that does not exist is a configuration fault, not an
+// empty corpus. Discover used to return nil, nil for it, which read
+// exactly like a quiet night with nothing to report.
+func TestDiscoverErrorsWhenTheProjectsRootDoesNotExist(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-there")
+
+	_, _, err := Discover(root, "/home/agent", time.Time{})
+
+	if err == nil {
+		t.Fatal("expected an error for a projects root that does not exist")
+	}
+}
+
+// classify swallowed whatever error os.Open returned and the caller's
+// loop turned it into a silent skip. A corpus the job has lost access
+// to must not read the same as a corpus with nothing new in it.
+func TestDiscoverReportsATranscriptItCouldNotClassify(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: mode 0000 does not deny access")
+	}
+	root := t.TempDir()
+	home := "/home/agent"
+	blocked := writeTranscript(t, filepath.Join(root, "-home-agent-proj--worktrees-fix-a"),
+		"w.jsonl",
+		userLine(home+"/proj/.worktrees/fix-a", "2026-09-01T01:00:00Z", "# Goal"))
+	if err := os.Chmod(blocked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o644) })
+
+	got, errs, err := Discover(root, home, time.Time{})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("an unreadable transcript must not be classified: %+v", got)
+	}
+	if len(errs) != 1 || errs[0].Path != blocked {
+		t.Fatalf("the unreadable transcript was dropped silently: errs = %+v", errs)
+	}
+}
+
+// The scanner's buffer caps out at 8 MiB. A line past that used to make
+// Scan stop without an error surfacing anywhere, so the session's First
+// and Last only covered whatever came before the oversized line: a
+// truncated read that looked like a complete one.
+func TestDiscoverReportsAnOversizedLineInsteadOfTruncating(t *testing.T) {
+	root := t.TempDir()
+	home := "/home/agent"
+	cwd := home + "/proj/.worktrees/fix-a"
+	huge := `{"type":"user","cwd":"` + cwd + `","timestamp":"2026-09-01T02:00:00Z","message":{"role":"user","content":"` +
+		strings.Repeat("x", 8*1024*1024+1) + `"}}`
+	path := writeTranscript(t, filepath.Join(root, "-home-agent-proj--worktrees-fix-a"), "w.jsonl",
+		userLine(cwd, "2026-09-01T01:00:00Z", "# Goal"),
+		huge)
+
+	got, errs, err := Discover(root, home, time.Time{})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a transcript with an oversized line must not be classified as a complete read: %+v", got)
+	}
+	if len(errs) != 1 || errs[0].Path != path {
+		t.Fatalf("the oversized line was truncated silently instead of erroring: errs = %+v", errs)
 	}
 }

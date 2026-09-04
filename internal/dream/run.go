@@ -129,14 +129,6 @@ func Run(opts Options) (Report, error) {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now().UTC()
 	}
-	// Discover reports a projects root that is not there as an empty
-	// corpus, which is indistinguishable from a night where nothing ran.
-	// A path that does not resolve is a fault, so it is checked here.
-	if fi, err := os.Stat(opts.ProjectsRoot); err != nil {
-		return rep, fmt.Errorf("dream: run: projects root: %w", err)
-	} else if !fi.IsDir() {
-		return rep, fmt.Errorf("dream: run: projects root %s is not a directory", opts.ProjectsRoot)
-	}
 
 	wmPath, err := statefile.Path(opts.Project, filepath.Join("dreams", "watermark.json"))
 	if err != nil {
@@ -146,12 +138,14 @@ func Run(opts Options) (Report, error) {
 	since, _ := time.Parse(time.RFC3339, wm.Last)
 	rep.Since = wm.Last
 
-	rep.Unreadable = unreadableTranscripts(opts.ProjectsRoot)
-
-	sessions, err := Discover(opts.ProjectsRoot, opts.Home, since)
+	// A projects root that does not resolve is a configuration fault,
+	// not an empty corpus, and Discover reports it as an error rather
+	// than a quiet night.
+	sessions, classifyErrs, err := Discover(opts.ProjectsRoot, opts.Home, since)
 	if err != nil {
-		return rep, err
+		return rep, fmt.Errorf("dream: run: projects root: %w", err)
 	}
+	rep.Unreadable = classifyErrs
 	rep.Discovered = len(sessions)
 
 	var mine []Session
@@ -293,42 +287,6 @@ func deepReads(ds []SessionDigest) []DeepRead {
 			Path:    abs,
 			Entries: d.Entries,
 		})
-	}
-	return out
-}
-
-// unreadableTranscripts opens every transcript under root without
-// reading it. classify drops a file it cannot open and says nothing, so
-// without this pass a corpus the job has lost access to reads as a run of
-// quiet nights.
-func unreadableTranscripts(root string) []TranscriptError {
-	var out []TranscriptError
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return []TranscriptError{{root, err.Error()}}
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, e.Name())
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			out = append(out, TranscriptError{dir, err.Error()})
-			continue
-		}
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
-				continue
-			}
-			p := filepath.Join(dir, f.Name())
-			h, err := os.Open(p)
-			if err != nil {
-				out = append(out, TranscriptError{p, err.Error()})
-				continue
-			}
-			_ = h.Close()
-		}
 	}
 	return out
 }
