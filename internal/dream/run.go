@@ -99,14 +99,64 @@ type Report struct {
 	Warnings    []string
 }
 
-// watermark is where the last run stopped. Previous and RunID are kept so
-// a night whose task was minted and then never judged can be found and
-// put back: nothing in this arc notices that a judging worker died, so
-// the position it skipped past has to stay nameable.
+// watermark is where the last run stopped. History and RunID are kept
+// so a night whose task was minted and then never judged can be found
+// and put back: nothing in this arc notices that a judging worker died,
+// so the position it skipped past has to stay reachable. History holds
+// the values Last held before each of the last maxWatermarkHistory
+// runs replaced it, newest first, because a single Previous value only
+// survives one missed night: a second consecutive night whose task also
+// goes unjudged used to push the first one out of reach for good.
 type watermark struct {
-	Last     string `json:"last"`
-	Previous string `json:"previous,omitempty"`
-	RunID    string `json:"run_id,omitempty"`
+	Last    string   `json:"last"`
+	History []string `json:"history,omitempty"`
+	RunID   string   `json:"run_id,omitempty"`
+}
+
+// maxWatermarkHistory bounds how many nights back a rewind can reach.
+// Ten covers two work weeks of nightly runs going unjudged before an
+// operator notices - a wide margin over the single-night loss this
+// fixes - while keeping the watermark file small: each step is one
+// RFC3339 timestamp, so the file stays well under a kilobyte even at
+// the cap.
+const maxWatermarkHistory = 10
+
+// RewindResult reports what Rewind moved.
+type RewindResult struct {
+	Last     string
+	Previous string
+	RunID    string
+}
+
+// Rewind moves a project's watermark back one recorded step, restoring
+// the value Last held before the most recent run that replaced it. It
+// returns an error if there is no history to rewind to. RunID is the
+// id of the run whose sessions are back in scope; it is not carried
+// forward, because nothing paired a run id with each older History
+// entry before this fix either, so an older step's own run id was
+// never recoverable.
+func Rewind(project string) (RewindResult, error) {
+	path, err := statefile.Path(project, filepath.Join("dreams", "watermark.json"))
+	if err != nil {
+		return RewindResult{}, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return RewindResult{}, err
+	}
+	var wm watermark
+	if err := json.Unmarshal(b, &wm); err != nil {
+		return RewindResult{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if len(wm.History) == 0 {
+		return RewindResult{}, fmt.Errorf("dream: rewind: %s has no previous value to rewind to", path)
+	}
+	res := RewindResult{Last: wm.Last, Previous: wm.History[0], RunID: wm.RunID}
+	next := watermark{Last: wm.History[0], History: wm.History[1:]}
+	if err := statefile.WriteJSONAtomic(path, "dream-watermark", next); err != nil {
+		return RewindResult{}, err
+	}
+	return res, nil
 }
 
 // Run executes the deterministic half of a night: discover the sessions
@@ -230,7 +280,14 @@ func Run(opts Options) (Report, error) {
 		newest = opts.Now
 	}
 	rep.Previous, rep.Watermark = wm.Last, newest.UTC().Format(time.RFC3339)
-	next := watermark{Last: rep.Watermark, Previous: wm.Last, RunID: opts.RunID}
+	history := wm.History
+	if wm.Last != "" {
+		history = append([]string{wm.Last}, history...)
+	}
+	if len(history) > maxWatermarkHistory {
+		history = history[:maxWatermarkHistory]
+	}
+	next := watermark{Last: rep.Watermark, History: history, RunID: opts.RunID}
 	if err := statefile.WriteJSONAtomic(wmPath, "dream-watermark", next); err != nil {
 		return rep, err
 	}

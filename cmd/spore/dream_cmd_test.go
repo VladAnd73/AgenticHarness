@@ -118,20 +118,20 @@ func (f *dreamFixture) statePath(t *testing.T, name string) string {
 	return p
 }
 
-func (f *dreamFixture) writeWatermark(t *testing.T, wm map[string]string) {
+func (f *dreamFixture) writeWatermark(t *testing.T, wm map[string]any) {
 	t.Helper()
 	if err := statefile.WriteJSONAtomic(f.statePath(t, "watermark.json"), "test-watermark", wm); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func (f *dreamFixture) readWatermark(t *testing.T) map[string]string {
+func (f *dreamFixture) readWatermark(t *testing.T) map[string]any {
 	t.Helper()
 	b, err := os.ReadFile(f.statePath(t, "watermark.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var wm map[string]string
+	var wm map[string]any
 	if err := json.Unmarshal(b, &wm); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestDreamDigestDryRunWritesNothing(t *testing.T) {
 	f := newDreamFixture(t)
 	f.enable(t)
 	f.correction(t, "fix-a", "2026-09-02")
-	f.writeWatermark(t, map[string]string{"last": "2026-09-01T00:00:00Z"})
+	f.writeWatermark(t, map[string]any{"last": "2026-09-01T00:00:00Z"})
 	before, err := os.ReadFile(f.statePath(t, "watermark.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -608,10 +608,10 @@ func TestDreamRevertReportsSkippedAndRestoredPaths(t *testing.T) {
 // every future night; the previous watermark is the only way back.
 func TestDreamRewindRestoresThePreviousWatermark(t *testing.T) {
 	f := newDreamFixture(t)
-	f.writeWatermark(t, map[string]string{
-		"last":     "2026-09-03T02:58:11Z",
-		"previous": "2026-09-02T03:00:00Z",
-		"run_id":   "20260903-ab12",
+	f.writeWatermark(t, map[string]any{
+		"last":    "2026-09-03T02:58:11Z",
+		"history": []string{"2026-09-02T03:00:00Z"},
+		"run_id":  "20260903-ab12",
 	})
 
 	code, out, errOut := f.run(t, "rewind", "--project", f.project)
@@ -632,7 +632,7 @@ func TestDreamRewindRestoresThePreviousWatermark(t *testing.T) {
 
 func TestDreamRewindRefusesWhenThereIsNoPreviousValue(t *testing.T) {
 	f := newDreamFixture(t)
-	f.writeWatermark(t, map[string]string{"last": "2026-09-03T02:58:11Z"})
+	f.writeWatermark(t, map[string]any{"last": "2026-09-03T02:58:11Z"})
 
 	code, out, errOut := f.run(t, "rewind", "--project", f.project)
 

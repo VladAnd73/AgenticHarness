@@ -18,6 +18,31 @@ func writeWatchToml(t *testing.T, dir, project, body string) {
 	}
 }
 
+// The CLI told an operator whose project was disabled where to enable
+// it by recomputing this path itself (cmd/spore's watchTomlPath). A
+// second, independent copy of this resolution drifting from the one
+// readWatchToml actually uses would send an operator to edit a file
+// nothing reads.
+func TestTomlPathMatchesWhereLoadDreamsConfigReads(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path := TomlPath("proj")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[dreams]\nenabled = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadDreamsConfig("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled {
+		t.Fatalf("LoadDreamsConfig did not read the file TomlPath named: %s", path)
+	}
+}
+
 func TestLoadConfigMissingFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := LoadConfig("nope")
