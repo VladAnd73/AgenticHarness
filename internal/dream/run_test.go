@@ -41,7 +41,7 @@ func newRunFixture(t *testing.T, project string) *runFixture {
 		TasksDir:     tasksDir,
 		Now:          time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC),
 		RunID:        "20260902-test",
-		DeepReadCap:  3,
+		DeepReadCap:  intPtr(3),
 	}
 	return f
 }
@@ -161,6 +161,31 @@ func TestRunDeepReadCarriesAnAbsolutePathAndTheRealEntryCount(t *testing.T) {
 		t.Errorf("the task does not carry %q, the transcript's real line count:\n%s", want, body)
 	}
 }
+
+// internal/watch documents deep_read_cap = 0 as a legal "do none of
+// this", and the CLI passes that value straight into Options.DeepReadCap.
+// Options has to carry the same meaning: an explicit zero is not "no cap
+// named".
+func TestRunOptionsDeepReadCapZeroMeansNoDeepReads(t *testing.T) {
+	f := newRunFixture(t, "proj")
+	cwd := workerCwd("proj", "fix-a")
+	lines := []string{userLine(cwd, "2026-09-01T01:00:00Z", "# Goal")}
+	for i := 0; i < 6; i++ {
+		lines = append(lines, toolErrorLine(cwd, fmt.Sprintf("2026-09-01T01:0%d:00Z", i+1),
+			"bash: fleebnort: command not found"))
+	}
+	f.worker(t, "proj", "fix-a", lines...)
+
+	opts := f.opts
+	opts.DeepReadCap = intPtr(0)
+	rep := mustRun(t, opts)
+
+	if rep.DeepRead != 0 {
+		t.Fatalf("DeepRead = %d, want 0: an explicit zero cap was replaced by the default", rep.DeepRead)
+	}
+}
+
+func intPtr(n int) *int { return &n }
 
 // Scenario 4.
 func TestRunWritesLiveClaimsVerbatimAndOmitsRefutedOnes(t *testing.T) {

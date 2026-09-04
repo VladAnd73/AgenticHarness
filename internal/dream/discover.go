@@ -42,16 +42,18 @@ type rawEntry struct {
 }
 
 // Discover walks projectsRoot for transcripts whose last activity is
-// after since, and returns only spore-managed sessions.
-func Discover(projectsRoot, home string, since time.Time) ([]Session, error) {
+// after since, and returns only spore-managed sessions. The second
+// return names every transcript Discover could not fully classify, so a
+// corpus with one broken file does not read the same as a quiet night:
+// the broken file is reported alongside whatever the rest of the corpus
+// yielded, rather than silently dropped.
+func Discover(projectsRoot, home string, since time.Time) ([]Session, []TranscriptError, error) {
 	entries, err := os.ReadDir(projectsRoot)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+		return nil, nil, err
 	}
 	var out []Session
+	var errs []TranscriptError
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -59,23 +61,26 @@ func Discover(projectsRoot, home string, since time.Time) ([]Session, error) {
 		dir := filepath.Join(projectsRoot, e.Name())
 		files, err := os.ReadDir(dir)
 		if err != nil {
+			errs = append(errs, TranscriptError{dir, err.Error()})
 			continue
 		}
 		for _, f := range files {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 				continue
 			}
-			s, ok, err := classify(filepath.Join(dir, f.Name()), home)
-			if err != nil || !ok {
+			path := filepath.Join(dir, f.Name())
+			s, ok, err := classify(path, home)
+			if err != nil {
+				errs = append(errs, TranscriptError{path, err.Error()})
 				continue
 			}
-			if !s.Last.After(since) {
+			if !ok || !s.Last.After(since) {
 				continue
 			}
 			out = append(out, s)
 		}
 	}
-	return out, nil
+	return out, errs, nil
 }
 
 func classify(path, home string) (Session, bool, error) {
@@ -108,6 +113,13 @@ func classify(path, home string) (Session, bool, error) {
 		if firstUser == "" && e.Type == "user" {
 			firstUser = messageText(e.Message)
 		}
+	}
+	// Scan stops silently on a line past the buffer's 8 MiB ceiling, so
+	// without this check a transcript with one oversized line reads as a
+	// session that legitimately ended early: First and Last only cover
+	// whatever came before the line the scanner choked on.
+	if err := sc.Err(); err != nil {
+		return Session{}, false, err
 	}
 	if cwd == "" {
 		return Session{}, false, nil

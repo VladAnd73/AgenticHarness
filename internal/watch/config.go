@@ -117,16 +117,25 @@ func parseIntDefault(val string, def int) (int, error) {
 	return n, nil
 }
 
-// readWatchToml parses watch.toml into a section -> key -> raw-value map. The
-// anonymous top-level section is keyed by "". A missing file yields an empty
-// (non-nil) map with no error.
-func readWatchToml(project string) (map[string]map[string]string, error) {
+// TomlPath is where a project's watch.toml lives. Callers that need to
+// tell an operator which file to edit (a disabled feature's message, an
+// error) call this rather than recomputing $XDG_CONFIG_HOME resolution
+// themselves, so the path they name is guaranteed to be the one
+// readWatchToml actually reads.
+func TomlPath(project string) string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		base = filepath.Join(os.Getenv("HOME"), ".config")
 	}
+	return filepath.Join(base, "spore", project, "watch.toml")
+}
+
+// readWatchToml parses watch.toml into a section -> key -> raw-value map. The
+// anonymous top-level section is keyed by "". A missing file yields an empty
+// (non-nil) map with no error.
+func readWatchToml(project string) (map[string]map[string]string, error) {
 	sections := map[string]map[string]string{"": {}}
-	b, err := os.ReadFile(filepath.Join(base, "spore", project, "watch.toml"))
+	b, err := os.ReadFile(TomlPath(project))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return sections, nil

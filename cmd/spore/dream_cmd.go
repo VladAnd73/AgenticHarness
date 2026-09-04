@@ -3,14 +3,12 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -112,7 +110,7 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 		// that found nothing, and the config path is the only part of
 		// this an operator can act on.
 		fmt.Fprintf(out, "dream %s: disabled, nothing to do; set enabled = true under [dreams] in %s\n",
-			project, watchTomlPath(project))
+			project, watch.TomlPath(project))
 		return 0
 	}
 
@@ -138,7 +136,7 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 		TasksDir:     filepath.Join(cwd, "tasks"),
 		Now:          now,
 		RunID:        now.Format("20060102") + "-" + shortSuffix(now),
-		DeepReadCap:  deepCap,
+		DeepReadCap:  &deepCap,
 		DryRun:       *dryRun,
 	})
 	// Verdict first, detail after: the first line of a run in the
@@ -151,7 +149,26 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 	}
 	fmt.Fprintln(out, dreamSummary(rep, deepCap))
 	dreamWarnings(errOut, rep.Warnings)
+	if !*dryRun {
+		dreamPrune(out, errOut, project, filepath.Join(cwd, "tasks"), now)
+	}
 	return 0
+}
+
+// dreamPrune reaps run directories old enough that their minted task is
+// long past any plausible judging delay, and whose task is done or gone
+// from tasksDir. A failure here is a warning, not a run failure: it
+// costs a few KB of disk, not a night's work.
+func dreamPrune(out, errOut io.Writer, project, tasksDir string, now time.Time) {
+	prep, err := dream.Prune(project, tasksDir, now)
+	if err != nil {
+		fmt.Fprintf(errOut, "%s %s: prune: %v\n", dreamWarnToken, project, err)
+		return
+	}
+	if len(prep.Removed) > 0 {
+		fmt.Fprintf(out, "dream prune %s: removed %d run(s): %s\n",
+			project, len(prep.Removed), strings.Join(prep.Removed, ", "))
+	}
 }
 
 // dreamSummary is the one line every night leaves behind. It is
@@ -197,7 +214,7 @@ func dreamRuns(out, errOut io.Writer, args []string) int {
 	if err != nil {
 		return dreamFail(errOut, "runs", err)
 	}
-	runs, err := dreamListRuns(dir)
+	runs, err := dream.ListRuns(project)
 	if err != nil {
 		return dreamFail(errOut, "runs", err)
 	}
@@ -208,59 +225,13 @@ func dreamRuns(out, errOut io.Writer, args []string) int {
 	fmt.Fprintf(out, "dream runs %s: %d run(s) under %s, newest first\n", project, len(runs), dir)
 	for _, r := range runs {
 		state := "revertible"
-		if !r.revertible {
+		if !r.Revertible {
 			state = "no manifest, revert unavailable"
 		}
 		fmt.Fprintf(out, "%s  %s (%s)  %s\n",
-			r.id, r.when.UTC().Format(time.RFC3339), r.dated, state)
+			r.RunID, r.When.UTC().Format(time.RFC3339), r.Dated, state)
 	}
 	return 0
-}
-
-type dreamRunEntry struct {
-	id         string
-	when       time.Time
-	dated      string
-	revertible bool
-}
-
-// dreamListRuns dates every run directory so a human can say "undo last
-// night" without knowing a run id. The manifest's created_at is
-// authoritative, but only a run that snapshotted has a manifest, so the
-// rest are dated by their directory and each line says which it used.
-func dreamListRuns(dir string) ([]dreamRunEntry, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var out []dreamRunEntry
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		r := dreamRunEntry{id: e.Name(), dated: "directory mtime"}
-		if info, err := e.Info(); err == nil {
-			r.when = info.ModTime()
-		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name(), "manifest.json"))
-		if err == nil {
-			r.revertible = true
-			var m struct {
-				CreatedAt string `json:"created_at"`
-			}
-			if json.Unmarshal(b, &m) == nil {
-				if ts, err := time.Parse(time.RFC3339, m.CreatedAt); err == nil {
-					r.when, r.dated = ts, "manifest created_at"
-				}
-			}
-		}
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].when.After(out[j].when) })
-	return out, nil
 }
 
 func dreamRevert(out, errOut io.Writer, args []string) int {
@@ -281,14 +252,6 @@ func dreamRevert(out, errOut io.Writer, args []string) int {
 	dir, err := statefile.Path(project, filepath.Join("dreams", runID))
 	if err != nil {
 		return dreamFail(errOut, "revert", err)
-	}
-	// RevertWithReport creates the run directory before it looks for a
-	// manifest, so calling it with a run id nobody has heard of would
-	// leave an empty directory behind and report it as unrevertible.
-	if _, err := os.Stat(dir); err != nil {
-		fmt.Fprintf(errOut, "%s spore dream revert: no run %q for project %s: %s does not exist\n",
-			dreamErrorToken, runID, project, dir)
-		return 1
 	}
 	lock, err := dreamLock(project)
 	if err != nil {
@@ -351,42 +314,13 @@ func dreamRewind(out, errOut io.Writer, args []string) int {
 	}
 	defer lock.Close()
 
-	path, err := statefile.Path(project, filepath.Join("dreams", "watermark.json"))
+	res, err := dream.Rewind(project)
 	if err != nil {
-		return dreamFail(errOut, "rewind", err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return dreamFail(errOut, "rewind", err)
-	}
-	var wm dreamWatermark
-	if err := json.Unmarshal(b, &wm); err != nil {
-		return dreamFail(errOut, "rewind", fmt.Errorf("%s: %w", path, err))
-	}
-	if strings.TrimSpace(wm.Previous) == "" {
-		fmt.Fprintf(errOut, "%s spore dream rewind: %s has no previous value to rewind to (%s)\n",
-			dreamErrorToken, project, path)
-		return 1
-	}
-	// Previous is dropped rather than carried: one step back is the
-	// whole recovery, and keeping it would let a second rewind report a
-	// move it did not make.
-	next := dreamWatermark{Last: wm.Previous, RunID: wm.RunID}
-	if err := statefile.WriteJSONAtomic(path, "dream-watermark", next); err != nil {
 		return dreamFail(errOut, "rewind", err)
 	}
 	fmt.Fprintf(out, "dream rewind %s: last %s -> %s; the sessions run %s consumed are in scope again\n",
-		project, wm.Last, wm.Previous, orNone(wm.RunID))
+		project, res.Last, res.Previous, orNone(res.RunID))
 	return 0
-}
-
-// dreamWatermark mirrors internal/dream's watermark file. The type is
-// unexported there and the package offers no rewind, so the CLI has to
-// name the shape itself to move the mark back.
-type dreamWatermark struct {
-	Last     string `json:"last"`
-	Previous string `json:"previous,omitempty"`
-	RunID    string `json:"run_id,omitempty"`
 }
 
 // dreamContext resolves the repo whose tasks directory a minted task
@@ -426,18 +360,6 @@ func dreamTranscripts(flagValue string) string {
 		return flagValue
 	}
 	return filepath.Join(os.Getenv("HOME"), ".claude", "projects")
-}
-
-// watchTomlPath repeats internal/watch's own config path resolution.
-// LoadDreamsConfig does not report the file it read, and telling an
-// operator their project is disabled without naming the file to edit
-// costs them the evening.
-func watchTomlPath(project string) string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".config")
-	}
-	return filepath.Join(base, "spore", project, "watch.toml")
 }
 
 func dreamLockPath(project string) (string, error) {

@@ -43,9 +43,16 @@ const defaultDigestBudget = 120000
 // count and the top score above the list are the parts that matter.
 const omittedListLimit = 25
 
-// Options configures one nightly run. A zero DeepReadCap or DigestBudget
-// takes the default above; a negative one means no deep reads and no
-// budget respectively.
+// Options configures one nightly run. A zero DigestBudget takes the
+// default above; a negative one means no budget.
+//
+// DeepReadCap is a pointer because internal/watch documents its config
+// knob's zero as legal ("do none of this"), and the CLI passes that
+// value straight through: a plain int could not tell "the caller named
+// no cap" from "the caller named zero" and would silently turn an
+// operator's opt-out back into the default. A nil DeepReadCap takes
+// the default above; any pointed-to value, including a pointer to
+// zero, is used as given.
 type Options struct {
 	ProjectsRoot string
 	Home         string
@@ -53,7 +60,7 @@ type Options struct {
 	TasksDir     string
 	Now          time.Time
 	RunID        string
-	DeepReadCap  int
+	DeepReadCap  *int
 	DigestBudget int
 	DryRun       bool
 }
@@ -92,14 +99,64 @@ type Report struct {
 	Warnings    []string
 }
 
-// watermark is where the last run stopped. Previous and RunID are kept so
-// a night whose task was minted and then never judged can be found and
-// put back: nothing in this arc notices that a judging worker died, so
-// the position it skipped past has to stay nameable.
+// watermark is where the last run stopped. History and RunID are kept
+// so a night whose task was minted and then never judged can be found
+// and put back: nothing in this arc notices that a judging worker died,
+// so the position it skipped past has to stay reachable. History holds
+// the values Last held before each of the last maxWatermarkHistory
+// runs replaced it, newest first, because a single Previous value only
+// survives one missed night: a second consecutive night whose task also
+// goes unjudged used to push the first one out of reach for good.
 type watermark struct {
-	Last     string `json:"last"`
-	Previous string `json:"previous,omitempty"`
-	RunID    string `json:"run_id,omitempty"`
+	Last    string   `json:"last"`
+	History []string `json:"history,omitempty"`
+	RunID   string   `json:"run_id,omitempty"`
+}
+
+// maxWatermarkHistory bounds how many nights back a rewind can reach.
+// Ten covers two work weeks of nightly runs going unjudged before an
+// operator notices - a wide margin over the single-night loss this
+// fixes - while keeping the watermark file small: each step is one
+// RFC3339 timestamp, so the file stays well under a kilobyte even at
+// the cap.
+const maxWatermarkHistory = 10
+
+// RewindResult reports what Rewind moved.
+type RewindResult struct {
+	Last     string
+	Previous string
+	RunID    string
+}
+
+// Rewind moves a project's watermark back one recorded step, restoring
+// the value Last held before the most recent run that replaced it. It
+// returns an error if there is no history to rewind to. RunID is the
+// id of the run whose sessions are back in scope; it is not carried
+// forward, because nothing paired a run id with each older History
+// entry before this fix either, so an older step's own run id was
+// never recoverable.
+func Rewind(project string) (RewindResult, error) {
+	path, err := statefile.Path(project, filepath.Join("dreams", "watermark.json"))
+	if err != nil {
+		return RewindResult{}, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return RewindResult{}, err
+	}
+	var wm watermark
+	if err := json.Unmarshal(b, &wm); err != nil {
+		return RewindResult{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if len(wm.History) == 0 {
+		return RewindResult{}, fmt.Errorf("dream: rewind: %s has no previous value to rewind to", path)
+	}
+	res := RewindResult{Last: wm.Last, Previous: wm.History[0], RunID: wm.RunID}
+	next := watermark{Last: wm.History[0], History: wm.History[1:]}
+	if err := statefile.WriteJSONAtomic(path, "dream-watermark", next); err != nil {
+		return RewindResult{}, err
+	}
+	return res, nil
 }
 
 // Run executes the deterministic half of a night: discover the sessions
@@ -122,14 +179,6 @@ func Run(opts Options) (Report, error) {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now().UTC()
 	}
-	// Discover reports a projects root that is not there as an empty
-	// corpus, which is indistinguishable from a night where nothing ran.
-	// A path that does not resolve is a fault, so it is checked here.
-	if fi, err := os.Stat(opts.ProjectsRoot); err != nil {
-		return rep, fmt.Errorf("dream: run: projects root: %w", err)
-	} else if !fi.IsDir() {
-		return rep, fmt.Errorf("dream: run: projects root %s is not a directory", opts.ProjectsRoot)
-	}
 
 	wmPath, err := statefile.Path(opts.Project, filepath.Join("dreams", "watermark.json"))
 	if err != nil {
@@ -139,12 +188,14 @@ func Run(opts Options) (Report, error) {
 	since, _ := time.Parse(time.RFC3339, wm.Last)
 	rep.Since = wm.Last
 
-	rep.Unreadable = unreadableTranscripts(opts.ProjectsRoot)
-
-	sessions, err := Discover(opts.ProjectsRoot, opts.Home, since)
+	// A projects root that does not resolve is a configuration fault,
+	// not an empty corpus, and Discover reports it as an error rather
+	// than a quiet night.
+	sessions, classifyErrs, err := Discover(opts.ProjectsRoot, opts.Home, since)
 	if err != nil {
-		return rep, err
+		return rep, fmt.Errorf("dream: run: projects root: %w", err)
 	}
+	rep.Unreadable = classifyErrs
 	rep.Discovered = len(sessions)
 
 	var mine []Session
@@ -229,7 +280,14 @@ func Run(opts Options) (Report, error) {
 		newest = opts.Now
 	}
 	rep.Previous, rep.Watermark = wm.Last, newest.UTC().Format(time.RFC3339)
-	next := watermark{Last: rep.Watermark, Previous: wm.Last, RunID: opts.RunID}
+	history := wm.History
+	if wm.Last != "" {
+		history = append([]string{wm.Last}, history...)
+	}
+	if len(history) > maxWatermarkHistory {
+		history = history[:maxWatermarkHistory]
+	}
+	next := watermark{Last: rep.Watermark, History: history, RunID: opts.RunID}
 	if err := statefile.WriteJSONAtomic(wmPath, "dream-watermark", next); err != nil {
 		return rep, err
 	}
@@ -258,10 +316,10 @@ func loadWatermark(path string) watermark {
 }
 
 func deepReadCap(opts Options) int {
-	if opts.DeepReadCap == 0 {
+	if opts.DeepReadCap == nil {
 		return DefaultDeepReadCap
 	}
-	return opts.DeepReadCap
+	return *opts.DeepReadCap
 }
 
 func digestBudget(opts Options) int {
@@ -286,42 +344,6 @@ func deepReads(ds []SessionDigest) []DeepRead {
 			Path:    abs,
 			Entries: d.Entries,
 		})
-	}
-	return out
-}
-
-// unreadableTranscripts opens every transcript under root without
-// reading it. classify drops a file it cannot open and says nothing, so
-// without this pass a corpus the job has lost access to reads as a run of
-// quiet nights.
-func unreadableTranscripts(root string) []TranscriptError {
-	var out []TranscriptError
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return []TranscriptError{{root, err.Error()}}
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, e.Name())
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			out = append(out, TranscriptError{dir, err.Error()})
-			continue
-		}
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
-				continue
-			}
-			p := filepath.Join(dir, f.Name())
-			h, err := os.Open(p)
-			if err != nil {
-				out = append(out, TranscriptError{p, err.Error()})
-				continue
-			}
-			_ = h.Close()
-		}
 	}
 	return out
 }
