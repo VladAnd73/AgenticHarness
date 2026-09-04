@@ -38,12 +38,16 @@ func TestBriefsCarryTheLoadBearingRules(t *testing.T) {
 
 // Both briefs ship inside the binary to every consumer of this harness,
 // so a phrase that fits only the machine they were written on is a leak.
+// "spore" itself is not banned: it is the CLI's own subcommand
+// vocabulary ("spore dream gate", "spore task done"), which every
+// consumer project's worker runs regardless of what that project is
+// called, not a leak of this kernel repo's identity.
 func TestBriefsNameNoProjectAndNoHost(t *testing.T) {
 	for name, brief := range map[string]string{
 		"proposer": ProposerBrief, "reviewer": ReviewerBrief,
 	} {
 		for _, banned := range []string{
-			"marketer", "crm-gateway", "spore", "nixos", "/home/", "vlad", "@",
+			"marketer", "crm-gateway", "nixos", "/home/", "vlad", "@",
 		} {
 			if strings.Contains(strings.ToLower(brief), banned) {
 				t.Errorf("%s brief leaks %q; kernel assets stay generic", name, banned)
@@ -111,5 +115,38 @@ func TestBothBriefsSeparateDiscussedFromDemonstrated(t *testing.T) {
 func TestReviewerBriefConfirmedRequiresProof(t *testing.T) {
 	requirePhrases(t, "reviewer", ReviewerBrief, []string{
 		"`confirmed` requires a non-empty `proof`",
+	})
+}
+
+// The proposer brief used to end at "write no packet and say so": stages
+// 4 and 5 did not exist yet, so nothing told the same worker session to
+// gate, spawn a reviewer, write survivors, or ever finish its own task.
+func TestProposerBriefOrchestratesGateReviewAndWrite(t *testing.T) {
+	requirePhrases(t, "proposer", ProposerBrief, []string{
+		"spore dream gate",
+		"spore dream reviewer-brief",
+		"spore dream write",
+		"spore task tell coordinator",
+		"spore task done",
+	})
+}
+
+// The reviewer must be handed exactly the brief, one packet, and its
+// target: nothing that would let it see the proposer's own reasoning.
+func TestProposerBriefIsolatesTheReviewerSubagent(t *testing.T) {
+	requirePhrases(t, "proposer", ProposerBrief, []string{
+		"a context that cannot see anything about this session",
+		"exactly three things: the",
+	})
+}
+
+// sessions is what Gate counts independent sightings against; without
+// this field in the schema nothing tells the proposer how a claim
+// clears the two-tier bar in one run instead of waiting for a second
+// night.
+func TestProposerBriefDocumentsTheSessionsField(t *testing.T) {
+	requirePhrases(t, "proposer", ProposerBrief, []string{
+		"\"sessions\"",
+		"independent sightings",
 	})
 }

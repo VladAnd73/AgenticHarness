@@ -19,12 +19,27 @@ import (
 	"github.com/versality/spore/internal/watch"
 )
 
-const dreamUsage = `usage: spore dream <digest|runs|revert|rewind> [flags]
+const dreamUsage = `usage: spore dream <digest|gate|reviewer-brief|write|runs|revert|rewind> [flags]
 
   digest [--project-root DIR] [--transcripts DIR] [--deep-read-cap N] [--dry-run]
          Digest the sessions this project produced since the last run and
          mint one proposer task. Exits non-zero only when the run itself
          failed: a night with no sessions exits 0 and warns.
+  gate <run-id> [--project NAME] [--threshold N]
+         Apply the two-tier evidence bar to every packet the proposer
+         wrote this run and print which ones cleared. Run this after
+         writing packets/<n>.json and before spawning a reviewer for
+         any of them.
+  reviewer-brief
+         Print the reviewer brief to stdout, so a worker on any project
+         can build a reviewer subagent's prompt without this repo's
+         source tree: the binary is all a consumer project has.
+  write <run-id> [--project NAME] [--max-writes N]
+         Record every reviewer verdict, then write the confirmed
+         survivors: snapshot every target once, write lesson, memory
+         and skill-proposal tiers, seal the run, and write report.md.
+         A confirmed packet past --max-writes is held as a candidate,
+         not discarded.
   runs   [--project NAME]
          List this project's run directories, newest first.
   revert <run-id> [--project NAME]
@@ -37,9 +52,13 @@ const dreamUsage = `usage: spore dream <digest|runs|revert|rewind> [flags]
 --transcripts is the session corpus to read, default $HOME/.claude/projects.
 --project-root is the repo whose tasks/ a minted task lands in, default cwd.
 --deep-read-cap overrides the [dreams] deep_read_cap setting for one run.
+--threshold overrides the [dreams] recurrence_threshold setting for one run.
+--max-writes overrides the [dreams] max_writes_per_run setting for one run.
 `
 
 const (
+	dreamGateUsage   = "usage: spore dream gate <run-id> [--project NAME] [--threshold N]"
+	dreamWriteUsage  = "usage: spore dream write <run-id> [--project NAME] [--max-writes N]"
 	dreamRevertUsage = "usage: spore dream revert <run-id> [--project NAME]"
 	dreamRewindUsage = "usage: spore dream rewind [--project NAME]"
 	dreamRunsUsage   = "usage: spore dream runs [--project NAME]"
@@ -75,6 +94,13 @@ func dreamMain(out, errOut io.Writer, args []string) int {
 		return 0
 	case "digest":
 		return dreamDigest(out, errOut, args[1:])
+	case "gate":
+		return dreamGate(out, errOut, args[1:])
+	case "reviewer-brief":
+		fmt.Fprint(out, dream.ReviewerBrief)
+		return 0
+	case "write":
+		return dreamWriteCmd(out, errOut, args[1:])
 	case "runs":
 		return dreamRuns(out, errOut, args[1:])
 	case "revert":
@@ -199,6 +225,120 @@ func dreamWarnings(errOut io.Writer, warnings []string) {
 	}
 }
 
+func dreamGate(out, errOut io.Writer, args []string) int {
+	fs := flag.NewFlagSet("dream gate", flag.ContinueOnError)
+	projectFlag := fs.String("project", "", "project name (default: from cwd)")
+	thresholdFlag := fs.Int("threshold", 0, "independent sessions required (default: the [dreams] setting)")
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(reorderFlagsFirst(fs, args)); err != nil {
+		return dreamBadUsage(errOut, dreamGateUsage, err)
+	}
+	if fs.NArg() != 1 {
+		return dreamBadUsage(errOut, dreamGateUsage, nil)
+	}
+	runID := fs.Arg(0)
+	project, err := dreamProject(*projectFlag)
+	if err != nil {
+		return dreamFail(errOut, "gate", err)
+	}
+	cfg, err := watch.LoadDreamsConfig(project)
+	if err != nil {
+		return dreamFail(errOut, "gate", err)
+	}
+	threshold := cfg.RecurrenceThreshold
+	if *thresholdFlag > 0 {
+		threshold = *thresholdFlag
+	}
+	runDir, err := statefile.Path(project, filepath.Join("dreams", runID))
+	if err != nil {
+		return dreamFail(errOut, "gate", err)
+	}
+	if _, err := os.Stat(runDir); err != nil {
+		fmt.Fprintf(errOut, "%s spore dream gate: no run %q for project %s: %s does not exist\n",
+			dreamErrorToken, runID, project, runDir)
+		return 1
+	}
+	lock, err := dreamLock(project)
+	if err != nil {
+		return dreamFail(errOut, "gate", err)
+	}
+	defer lock.Close()
+
+	results, err := dream.GateRun(project, runID, runDir, threshold)
+	if err != nil {
+		return dreamFail(errOut, "gate", err)
+	}
+	cleared := 0
+	for _, r := range results {
+		state := "held"
+		if r.Cleared {
+			state, cleared = "cleared", cleared+1
+		}
+		fmt.Fprintf(out, "%d: %s fingerprint=%s\n", r.N, state, r.Fingerprint)
+	}
+	fmt.Fprintf(out, "dream gate %s %s: packets=%d cleared=%d held=%d threshold=%d\n",
+		project, runID, len(results), cleared, len(results)-cleared, threshold)
+	return 0
+}
+
+func dreamWriteCmd(out, errOut io.Writer, args []string) int {
+	fs := flag.NewFlagSet("dream write", flag.ContinueOnError)
+	projectFlag := fs.String("project", "", "project name (default: from cwd)")
+	maxWritesFlag := fs.Int("max-writes", 0, "confirmed packets to write (default: the [dreams] setting)")
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(reorderFlagsFirst(fs, args)); err != nil {
+		return dreamBadUsage(errOut, dreamWriteUsage, err)
+	}
+	if fs.NArg() != 1 {
+		return dreamBadUsage(errOut, dreamWriteUsage, nil)
+	}
+	runID := fs.Arg(0)
+	project, err := dreamProject(*projectFlag)
+	if err != nil {
+		return dreamFail(errOut, "write", err)
+	}
+	cfg, err := watch.LoadDreamsConfig(project)
+	if err != nil {
+		return dreamFail(errOut, "write", err)
+	}
+	maxWrites := cfg.MaxWritesPerRun
+	if *maxWritesFlag > 0 {
+		maxWrites = *maxWritesFlag
+	}
+	runDir, err := statefile.Path(project, filepath.Join("dreams", runID))
+	if err != nil {
+		return dreamFail(errOut, "write", err)
+	}
+	if _, err := os.Stat(runDir); err != nil {
+		fmt.Fprintf(errOut, "%s spore dream write: no run %q for project %s: %s does not exist\n",
+			dreamErrorToken, runID, project, runDir)
+		return 1
+	}
+	lock, err := dreamLock(project)
+	if err != nil {
+		return dreamFail(errOut, "write", err)
+	}
+	defer lock.Close()
+
+	rep, err := dream.WriteRun(project, runID, runDir, maxWrites)
+	if err != nil {
+		return dreamFail(errOut, "write", err)
+	}
+	for _, w := range rep.Written {
+		fmt.Fprintf(out, "written [%s] %s -> %s\n", w.Tier, w.Claim, w.Target)
+	}
+	for _, r := range rep.Refused {
+		fmt.Fprintf(out, "refused [%s] %s: %s\n", r.Verdict, r.Claim, r.Reason)
+	}
+	for _, h := range rep.Held {
+		fmt.Fprintf(out, "held [%s] %s -> %s\n", h.Tier, h.Claim, h.Target)
+	}
+	fmt.Fprintf(out, "dream write %s %s: written=%d refused=%d held=%d skill-proposals=%d report=%s\n",
+		project, runID, len(rep.Written), len(rep.Refused), len(rep.Held), len(rep.SkillProposals),
+		filepath.Join(runDir, "report.md"))
+	return 0
+}
+
 func dreamRuns(out, errOut io.Writer, args []string) int {
 	fs := flag.NewFlagSet("dream runs", flag.ContinueOnError)
 	projectFlag := fs.String("project", "", "project name (default: from cwd)")
@@ -269,6 +409,14 @@ func dreamRevert(out, errOut io.Writer, args []string) int {
 				" so it records nothing to undo; the stage that writes into the harness is what will.")
 		}
 		return code
+	}
+	// The file revert can succeed while the ledger still believes this
+	// run's claims were written, which would refuse them the gate
+	// forever even after their content is back. Best-effort: a failure
+	// here is worth a warning, not a reason to call the revert failed.
+	if err := dream.RevertRunLedger(project, runID); err != nil {
+		fmt.Fprintf(errOut, "%s ledger entries for run %s were not reverted to candidate: %s\n",
+			dreamWarnToken, runID, err)
 	}
 	fmt.Fprintf(out, "dream revert %s %s: restored=%d removed=%d skipped=%d failed=%d\n",
 		project, runID, len(rep.Restored), len(rep.Removed), len(rep.Skipped), len(rep.Failed))
