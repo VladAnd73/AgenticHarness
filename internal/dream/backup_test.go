@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/versality/spore/internal/statefile"
 )
 
 func write(t *testing.T, path, content string, mode os.FileMode) {
@@ -234,6 +236,30 @@ func TestRevertReportsFilesItCouldNotRestore(t *testing.T) {
 	}
 	if got := read(t, last); got != "before" {
 		t.Fatalf("the entry after the failure was skipped: %q", got)
+	}
+}
+
+// RunDir MkdirAlls as a side effect, so a revert that used it to find the
+// manifest would create an empty run directory for a run id nobody has
+// heard of. RevertWithReport must look without creating.
+func TestRevertWithReportRefusesAnUnknownRunWithoutCreatingItsDirectory(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+
+	_, err := RevertWithReport("proj", "run-ghost")
+	if err == nil {
+		t.Fatal("an unknown run must not revert cleanly")
+	}
+	if !strings.Contains(err.Error(), "run-ghost") {
+		t.Errorf("the error does not name the run: %v", err)
+	}
+
+	dir, err := statefile.Path("proj", filepath.Join("dreams", "run-ghost"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+		t.Fatalf("RevertWithReport created %s for a run it never heard of", dir)
 	}
 }
 

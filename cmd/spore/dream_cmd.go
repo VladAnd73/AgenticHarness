@@ -282,14 +282,6 @@ func dreamRevert(out, errOut io.Writer, args []string) int {
 	if err != nil {
 		return dreamFail(errOut, "revert", err)
 	}
-	// RevertWithReport creates the run directory before it looks for a
-	// manifest, so calling it with a run id nobody has heard of would
-	// leave an empty directory behind and report it as unrevertible.
-	if _, err := os.Stat(dir); err != nil {
-		fmt.Fprintf(errOut, "%s spore dream revert: no run %q for project %s: %s does not exist\n",
-			dreamErrorToken, runID, project, dir)
-		return 1
-	}
 	lock, err := dreamLock(project)
 	if err != nil {
 		return dreamFail(errOut, "revert", err)

@@ -275,7 +275,9 @@ func Revert(project, runID string) ([]string, error) {
 // untouched with no record of which ones those were.
 func RevertWithReport(project, runID string) (RevertReport, error) {
 	var report RevertReport
-	dir, err := RunDir(project, runID)
+	// statefile.Path only computes the path; RunDir would MkdirAll it as
+	// a side effect, which is wrong for a run id nobody has heard of.
+	dir, err := statefile.Path(project, filepath.Join("dreams", runID))
 	if err != nil {
 		return report, err
 	}
