@@ -20,6 +20,18 @@ stage writes, and only for claims a reviewer confirms.
 - The transcripts of the sessions marked `deep-read: true`, under the
   bound below.
 
+`deep-read` only bounds transcript access; it is not a relevance
+signal. `digest.md` gives you every session's `Operator messages`,
+`Failures`, `Repeated commands` and `Operator refusals` in full,
+whether or not that session is `deep-read: true`. An operator
+correction sitting in a `deep-read: false` session is exactly as
+real as one you can also open the transcript for, and needs no
+transcript access to write up: the operator-preference type below
+requires only the verbatim quote plus session id and timestamp, both
+already in the digest. Do not silently narrow your search to the
+deep-read set; read every session's extracted slices before deciding
+what to write up.
+
 Sessions come in two kinds and both carry lessons. A coordinator session
 shows a bad handover, a wrong dispatch, a task brief that missed. A
 worker session shows an environment that comes up wrong, a missing
