@@ -169,8 +169,6 @@ func snapshotTargets(runDir string, toWrite []PacketFile) ([]string, error) {
 
 func writeOne(runDir string, pf PacketFile, report *WriteReport) error {
 	switch pf.Packet.Tier {
-	case "lesson":
-		return writeLessonBlock(pf.Packet.Target, pf.Packet.Text)
 	case "memory":
 		return writeMemoryEntry(pf.Packet.Target, pf.Packet.Text)
 	case "skill":
@@ -183,25 +181,6 @@ func writeOne(runDir string, pf PacketFile, report *WriteReport) error {
 	default:
 		return fmt.Errorf("dream: write: packet %d: unknown tier %q", pf.N, pf.Packet.Tier)
 	}
-}
-
-// writeLessonBlock appends text to target, the state-debt convention:
-// any H2/H3 heading naming CRITICAL LESSON, RULE, or <word> SELF-LESSON
-// is a lesson block, wherever in the file it lands. A missing state.md
-// is not an error: it is created holding only this block.
-func writeLessonBlock(target, text string) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
-	}
-	existing, err := os.ReadFile(target)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-		return os.WriteFile(target, []byte(text), 0o644)
-	}
-	body := strings.TrimRight(string(existing), "\n") + "\n\n" + strings.TrimRight(text, "\n") + "\n"
-	return os.WriteFile(target, []byte(body), 0o644)
 }
 
 var (
@@ -225,14 +204,18 @@ func writeMemoryEntry(target, text string) error {
 }
 
 func appendMemoryIndex(dir, filename, text string) error {
-	title := filename
-	if m := memoryNameRE.FindStringSubmatch(text); len(m) == 2 {
-		title = titleCase(strings.TrimSpace(m[1]))
+	m := memoryNameRE.FindStringSubmatch(text)
+	if len(m) != 2 {
+		return fmt.Errorf("dream: write: memory entry %s: text carries no name: in its frontmatter", filename)
 	}
-	hook := "see file"
-	if m := memoryDescriptionRE.FindStringSubmatch(text); len(m) == 2 {
-		hook = strings.TrimSpace(m[1])
+	title := titleCase(strings.TrimSpace(m[1]))
+
+	d := memoryDescriptionRE.FindStringSubmatch(text)
+	if len(d) != 2 {
+		return fmt.Errorf("dream: write: memory entry %s: text carries no description: in its frontmatter", filename)
 	}
+	hook := strings.TrimSpace(d[1])
+
 	line := fmt.Sprintf("- [%s](%s) -- %s\n", title, filename, hook)
 
 	indexPath := filepath.Join(dir, "MEMORY.md")

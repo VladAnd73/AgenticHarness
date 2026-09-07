@@ -9,6 +9,18 @@ any host. To deploy, see
 [nightly-dreaming-deploy.md](nightly-dreaming-deploy.md). Named
 follow-ups are under "Follow-ups" below.
 
+**Amendment (2026-09-07)**: the write stage's `lesson` tier (which
+appended a heading and body to a project's `state.md`) is retired; every
+automated write now goes to the project's memory directory, the same
+durable destination the `memory` tier always used. This was a live
+correctness fix: a dream-written lesson landed in marketer-frontend's
+`state.md` and was gone by that project's next coordinator wrap-up,
+because not every project protects a lesson block from its own
+size-cap trim the way spore's own `state.md` does. This changes only
+what the automated dream pipeline writes. `state.md`'s own hand-written
+`CRITICAL LESSON`/`RULE` convention, and `spore coordinator state-debt`
+which scans for it, are both untouched.
+
 # nightly dreaming: learn from spore sessions
 
 ## Problem
@@ -61,8 +73,9 @@ project, because lessons and skills are per project.
 1. **Input scope**: spore-managed sessions only, meaning coordinator and
    worker sessions. Partitioned per project; every output is
    project-scoped.
-2. **Authority**: lessons and memory entries are written automatically.
-   Skills are proposed to a review file and never installed by the job.
+2. **Authority**: memory entries (facts, rules, and preferences alike)
+   are written automatically. Skills are proposed to a review file and
+   never installed by the job.
 3. **Evidence bar**: two-tier. An explicit operator correction is
    sufficient evidence on a single occurrence. Anything the job infers
    on its own must recur in at least two independent sessions.
@@ -166,7 +179,7 @@ an evidence packet:
     evidence:   pointers, not quotes - session id + timestamp for an
                 operator message, file:line for code, the exact command
                 that would prove a host claim, the doc URL for an API
-    tier:       lesson-block | memory-entry | skill
+    tier:       memory-entry | skill
     target:     the file it would change
     text:       the literal proposed content
 
@@ -229,19 +242,19 @@ Survivors only, and only after the run has copied every target file into
 
 | Tier | Destination | Mode |
 | --- | --- | --- |
-| lesson / rule | that project's `state.md`, in the state-debt block format | auto |
-| memory entry | that project's memory dir, plus its `MEMORY.md` index line | auto |
+| memory entry (fact, rule, or preference) | that project's memory dir, plus its `MEMORY.md` index line | auto |
 | skill | `<run-dir>/skill-proposals/<name>.md` | proposed only |
 
-A project missing a target is not an error. If a project has no
-`state.md`, the run creates one with the lessons section only; if it has
-no memory directory, the lesson tier is used and the memory candidate is
-held rather than creating a memory tree the project never adopted.
+A project missing a target is not an error: if it has no memory
+directory yet, the run creates one holding only the entry it just wrote.
 
-Lesson blocks use the heading convention the scanner already reads:
-`### CRITICAL LESSON: <title> (<date>)` or `### RULE: ...`, with a
-`harness:` line when the lesson has been lifted. Every written item
-carries its run id so it can be traced back and reverted.
+A memory entry's `text` carries its own frontmatter (`name:`,
+`description:`, `metadata: {type: ...}`), exactly as a hand-written
+memory file does; the write stage reads `name` and `description` back
+out of it to build the `MEMORY.md` index line, and fails the packet
+outright if either is missing rather than silently indexing it under
+the filename. Every written item carries its run id so it can be traced
+back and reverted.
 
 The run then writes `report.md` (written, refuted with reasons, held as
 candidates, skills awaiting review) and tells the project's coordinator.
@@ -402,9 +415,9 @@ implementation and passes after.
 7. **Nothing is written without a confirmed verdict.** Given a run whose
    every packet is refuted, when it completes, then no target file is
    modified and the report lists the refusals with reasons.
-8. **Revert restores exactly.** Given a run that wrote to `state.md` and
-   two memory files, when `spore dream revert <run-id>` is run, then all
-   three files are byte-identical to their pre-run state and the ledger
+8. **Revert restores exactly.** Given a run that wrote three memory
+   files, when `spore dream revert <run-id>` is run, then all three
+   files are byte-identical to their pre-run state and the ledger
    entries are back to candidate.
 9. **Skills are never installed.** Given a confirmed skill candidate,
    when the run completes, then a file exists under `skill-proposals/`
@@ -412,10 +425,10 @@ implementation and passes after.
 10. **Full flow, end to end.** Given a fixture transcript directory for
     one project containing a repeated operator correction and a
     genuinely stale claim, when the whole pipeline runs, then the
-    correction is written as a lesson block that `spore coordinator
-    state-debt` parses, the stale claim is refuted with a recorded
-    reason, a backup exists for every written file, and the coordinator
-    receives one report envelope.
+    correction is written as a memory file with its `MEMORY.md` index
+    entry, the stale claim is refuted with a recorded reason, a backup
+    exists for every written file, `state.md` is never created, and the
+    coordinator receives one report envelope.
 
 ## Risks and open questions
 

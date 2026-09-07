@@ -31,14 +31,14 @@ func writeTestEnv(t *testing.T) {
 func TestWriteRunLeavesTargetsUntouchedWhenEveryPacketIsRefuted(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "state.md")
+	target := filepath.Join(t.TempDir(), "memory", "foo-flag.md")
 
 	writePacketFile(t, runDir, 1, `{
 		"claim": "flag --foo exists",
 		"type": "tool-behavior",
-		"tier": "lesson",
+		"tier": "memory",
 		"target": "`+jsonPath(target)+`",
-		"text": "### RULE: foo (2026-09-01)\n"
+		"text": "---\nname: foo-flag\ndescription: flag --foo exists\nmetadata:\n  type: project\n---\n\nBody.\n"
 	}`)
 	writeVerdictFile(t, runDir, 1, `{"verdict":"refuted","reason":"no such flag in --help","proof":"ran spore dream --help"}`)
 
@@ -77,22 +77,24 @@ func TestWriteRunLeavesTargetsUntouchedWhenEveryPacketIsRefuted(t *testing.T) {
 	}
 }
 
-// TestWriteRunWritesAConfirmedLessonAndSnapshotsFirst exercises the
-// lesson tier: the block lands in state.md in a form
-// internal/coordinator/statedebt can parse, and a backup exists before
-// the write happens.
-func TestWriteRunWritesAConfirmedLessonAndSnapshotsFirst(t *testing.T) {
+// TestWriteRunWritesAConfirmedMemoryEntryAndSnapshotsFirst covers
+// acceptance scenario 1: a rule/preference-type packet (operator
+// wants small commits) lands as a memory file, and MEMORY.md's index
+// line carries the real title and hook from the frontmatter, not a
+// filename/"see file" fallback. A backup exists before the write
+// happens.
+func TestWriteRunWritesAConfirmedMemoryEntryAndSnapshotsFirst(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "state.md")
-	os.WriteFile(target, []byte("# project state\n"), 0o644)
+	memDir := filepath.Join(t.TempDir(), "memory")
+	target := filepath.Join(memDir, "prefer-small-commits.md")
 
 	writePacketFile(t, runDir, 1, `{
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
-		"tier": "lesson",
+		"tier": "memory",
 		"target": "`+jsonPath(target)+`",
-		"text": "### RULE: prefer small commits (2026-09-01)\n\nSplit large diffs.\n"
+		"text": "---\nname: Prefer Small Commits\ndescription: Operator wants large diffs split into small commits.\nmetadata:\n  type: feedback\n---\n\nSplit large diffs.\n"
 	}`)
 	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"operator said so verbatim","proof":"session sesn-1 at 2026-09-01T00:00:00Z"}`)
 
@@ -111,11 +113,17 @@ func TestWriteRunWritesAConfirmedLessonAndSnapshotsFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "### RULE: prefer small commits (2026-09-01)") {
-		t.Fatalf("lesson block missing from state.md:\n%s", body)
+	if !strings.Contains(string(body), "Split large diffs.") {
+		t.Fatalf("memory file body missing:\n%s", body)
 	}
-	if !strings.Contains(string(body), "# project state") {
-		t.Fatalf("original content lost:\n%s", body)
+
+	index, err := os.ReadFile(filepath.Join(memDir, "MEMORY.md"))
+	if err != nil {
+		t.Fatalf("MEMORY.md must be created: %v", err)
+	}
+	if !strings.Contains(string(index), "Prefer Small Commits") ||
+		!strings.Contains(string(index), "Operator wants large diffs split into small commits.") {
+		t.Fatalf("MEMORY.md index line must use the real title and hook, not a fallback:\n%s", index)
 	}
 
 	if _, err := os.Stat(filepath.Join(runDir, "manifest.json")); err != nil {
@@ -132,19 +140,21 @@ func TestWriteRunWritesAConfirmedLessonAndSnapshotsFirst(t *testing.T) {
 	}
 }
 
-// TestWriteRunCreatesStateFileWhenMissing covers the "a project missing
-// a target is not an error" rule for the lesson tier.
-func TestWriteRunCreatesStateFileWhenMissing(t *testing.T) {
+// TestWriteRunCreatesMemoryDirAndIndexWhenMissing covers acceptance
+// scenario 2: a fresh project directory with no memory tree yet gets
+// one created, holding exactly the one entry this run wrote.
+func TestWriteRunCreatesMemoryDirAndIndexWhenMissing(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "state.md")
+	memDir := filepath.Join(t.TempDir(), "memory")
+	target := filepath.Join(memDir, "prefer-small-commits.md")
 
 	writePacketFile(t, runDir, 1, `{
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
-		"tier": "lesson",
+		"tier": "memory",
 		"target": "`+jsonPath(target)+`",
-		"text": "### RULE: prefer small commits (2026-09-01)\n"
+		"text": "---\nname: Prefer Small Commits\ndescription: Operator wants large diffs split into small commits.\nmetadata:\n  type: feedback\n---\n\nSplit large diffs.\n"
 	}`)
 	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"x","proof":"y"}`)
 
@@ -153,10 +163,79 @@ func TestWriteRunCreatesStateFileWhenMissing(t *testing.T) {
 	}
 	body, err := os.ReadFile(target)
 	if err != nil {
-		t.Fatalf("state.md must be created: %v", err)
+		t.Fatalf("memory file must be created: %v", err)
 	}
-	if !strings.Contains(string(body), "### RULE: prefer small commits") {
-		t.Fatalf("lesson block missing:\n%s", body)
+	if !strings.Contains(string(body), "Split large diffs.") {
+		t.Fatalf("memory file body missing:\n%s", body)
+	}
+
+	index, err := os.ReadFile(filepath.Join(memDir, "MEMORY.md"))
+	if err != nil {
+		t.Fatalf("MEMORY.md must be created: %v", err)
+	}
+	if entries := strings.Count(string(index), "\n- ["); entries != 1 {
+		t.Fatalf("expected exactly one entry in a fresh MEMORY.md, got %d:\n%s", entries, index)
+	}
+}
+
+// TestWriteRunNeverTouchesStateMd proves the negative acceptance
+// scenario: the dream write stage no longer appends anything to
+// state.md, for any packet tier. state.md's own hand-written
+// CRITICAL LESSON/RULE convention is untouched by this run.
+func TestWriteRunNeverTouchesStateMd(t *testing.T) {
+	writeTestEnv(t)
+	runDir := t.TempDir()
+	projectDir := t.TempDir()
+	stateFile := filepath.Join(projectDir, "state.md")
+	original := "# project state\n\n## CRITICAL LESSON: hand-written (2026-01-01)\n\nKeep this.\n"
+	if err := os.WriteFile(stateFile, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(projectDir, "memory", "prefer-small-commits.md")
+
+	writePacketFile(t, runDir, 1, `{
+		"claim": "operator wants small commits",
+		"type": "operator-preference",
+		"tier": "memory",
+		"target": "`+jsonPath(target)+`",
+		"text": "---\nname: Prefer Small Commits\ndescription: Operator wants large diffs split into small commits.\nmetadata:\n  type: feedback\n---\n\nSplit large diffs.\n"
+	}`)
+	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"x","proof":"y"}`)
+
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Fatalf("state.md must be byte-identical before and after; the dream pipeline must never append to it:\nbefore:\n%s\nafter:\n%s", original, after)
+	}
+}
+
+// TestWriteRunErrorsWhenMemoryFrontmatterMissingNameOrDescription
+// covers the fallback risk called out while retargeting the lesson
+// tier: appendMemoryIndex reads name:/description: back out of text
+// with a regex, and a packet whose text lacks them must fail loudly
+// rather than silently index under the filename and "see file".
+func TestWriteRunErrorsWhenMemoryFrontmatterMissingNameOrDescription(t *testing.T) {
+	writeTestEnv(t)
+	runDir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "memory", "no-frontmatter.md")
+
+	writePacketFile(t, runDir, 1, `{
+		"claim": "a claim with no real frontmatter",
+		"type": "host-state",
+		"tier": "memory",
+		"target": "`+jsonPath(target)+`",
+		"text": "Just a body, no name or description fields.\n"
+	}`)
+	writeVerdictFile(t, runDir, 1, `{"verdict":"confirmed","reason":"x","proof":"y"}`)
+
+	if _, err := WriteRun("proj", "run-1", runDir, 10); err == nil {
+		t.Fatal("expected an error for a memory packet whose text carries no name:/description: frontmatter")
 	}
 }
 
@@ -249,13 +328,13 @@ func TestWriteRunEnforcesMaxWritesPerRun(t *testing.T) {
 func TestWriteRunUnreviewedPacketIsIgnored(t *testing.T) {
 	writeTestEnv(t)
 	runDir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "state.md")
+	target := filepath.Join(t.TempDir(), "memory", "x.md")
 	writePacketFile(t, runDir, 1, `{
 		"claim": "some inferred claim seen once",
 		"type": "host-state",
-		"tier": "lesson",
+		"tier": "memory",
 		"target": "`+jsonPath(target)+`",
-		"text": "### RULE: x (2026-09-01)\n"
+		"text": "---\nname: x\ndescription: some inferred claim seen once\nmetadata:\n  type: project\n---\n\nBody.\n"
 	}`)
 	report, err := WriteRun("proj", "run-1", runDir, 10)
 	if err != nil {

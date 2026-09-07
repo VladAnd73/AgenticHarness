@@ -20,9 +20,9 @@ func TestGateRunAppliesTheTwoTierBar(t *testing.T) {
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
 		"sessions": ["sesn-1"],
-		"tier": "lesson",
-		"target": "/tmp/state.md",
-		"text": "### RULE: small commits (2026-09-01)\n"
+		"tier": "memory",
+		"target": "/tmp/memory/small-commits.md",
+		"text": "---\nname: small commits\ndescription: operator wants small commits\n---\n"
 	}`)
 	writePacketFile(t, runDir, 2, `{
 		"claim": "gh pr create targets upstream",
