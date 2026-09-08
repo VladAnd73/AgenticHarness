@@ -34,12 +34,42 @@ func TestClaudeSpawnerBuildsAHeadlessBypassPermissionsCommand(t *testing.T) {
 	}
 }
 
+// TestClaudeSpawnerAlwaysSkipsUserSettingsEvenWithNoExtraArgs guards
+// against a real bug this task's live non-regression run hit: a dream
+// scenario (proposer or reviewer) sends no ExtraArgs at all, so before
+// this fix ClaudeSpawner never passed --setting-sources project, and
+// this host's real ~/.claude/settings.json Stop hook chain (spore fleet
+// replenish-hook, then spore hooks watch-inbox with a 7-day timeout)
+// kept every one of 7 live scenario runs from exiting for over ten
+// minutes after they had already finished - confirmed live by finding
+// "spore hooks watch-inbox" running as a child of the stuck "claude -p"
+// process. This is the same hang docs/todo/
+// eval-harness-for-prompt-surfaces.md's "Stop-hook hang" section
+// describes and fixed for phase 2's session scenarios only; dream
+// scenarios need the identical flag regardless of ExtraArgs.
+func TestClaudeSpawnerAlwaysSkipsUserSettingsEvenWithNoExtraArgs(t *testing.T) {
+	var captured []string
+	s := ClaudeSpawner{
+		runCommand: func(ctx context.Context, dir string, env []string, args []string) (string, int, error) {
+			captured = args
+			return "ok", 0, nil
+		},
+	}
+	req := SpawnRequest{Prompt: "hello world", WorkDir: "/tmp/somewhere"}
+	if _, err := s.Spawn(context.Background(), req); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	joined := strings.Join(captured, " ")
+	if !strings.Contains(joined, "--setting-sources project") {
+		t.Fatalf("expected --setting-sources project in argv even with no ExtraArgs, got %v", captured)
+	}
+}
+
 // TestClaudeSpawnerIncludesExtraArgsBeforeThePrompt covers the
-// full-session scenario's need for flags ClaudeSpawner's fixed argv
-// does not include (--output-format stream-json to capture a
-// transcript, --setting-sources project to skip this host's own
-// ~/.claude/settings.json). The prompt must still end up last: it is a
-// positional arg, not a flag value.
+// full-session scenario's need for a flag ClaudeSpawner's fixed argv
+// does not include (--output-format stream-json, to capture a parseable
+// transcript). The prompt must still end up last: it is a positional
+// arg, not a flag value.
 func TestClaudeSpawnerIncludesExtraArgsBeforeThePrompt(t *testing.T) {
 	var captured []string
 	s := ClaudeSpawner{
@@ -51,16 +81,13 @@ func TestClaudeSpawnerIncludesExtraArgsBeforeThePrompt(t *testing.T) {
 	req := SpawnRequest{
 		Prompt:    "hello world",
 		WorkDir:   "/tmp/somewhere",
-		ExtraArgs: []string{"--output-format", "stream-json", "--verbose", "--setting-sources", "project"},
+		ExtraArgs: []string{"--output-format", "stream-json", "--verbose"},
 	}
 	if _, err := s.Spawn(context.Background(), req); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	joined := strings.Join(captured, " ")
 	if !strings.Contains(joined, "--output-format stream-json") {
-		t.Fatalf("expected extra args in argv, got %v", captured)
-	}
-	if !strings.Contains(joined, "--setting-sources project") {
 		t.Fatalf("expected extra args in argv, got %v", captured)
 	}
 	if captured[len(captured)-1] != "hello world" {

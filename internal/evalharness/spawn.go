@@ -21,12 +21,11 @@ type SpawnRequest struct {
 	Prompt  string
 	WorkDir string
 	Env     []string
-	// ExtraArgs are inserted after the fixed -p/--permission-mode pair
-	// and before Prompt. A dream scenario leaves this empty (text
-	// output is enough to grade files on disk); a full-session scenario
-	// sets it to request a parseable transcript (--output-format
-	// stream-json --verbose) and to skip this host's own
-	// ~/.claude/settings.json (--setting-sources project), which SessionSpawnArgs names.
+	// ExtraArgs are inserted after ClaudeSpawner's fixed base args and
+	// before Prompt. A dream scenario leaves this empty (text output is
+	// enough to grade files on disk); a full-session scenario sets it to
+	// request a parseable transcript (--output-format stream-json
+	// --verbose), which SessionSpawnArgs names.
 	ExtraArgs []string
 }
 
@@ -71,7 +70,19 @@ func (s ClaudeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult
 	// an unknown option and refuses to run. Production's real spawn
 	// (internal/task/lifecycle.go) does the same; verified live against
 	// a running coordinator's argv.
-	args := []string{"-p", "--permission-mode", "bypassPermissions"}
+	//
+	// --setting-sources project is required on every spawn, not just a
+	// full-session one: this host's real ~/.claude/settings.json
+	// registers a Stop hook chain (spore's own fleet/coordinator
+	// inbox-watching machinery) that is unrelated to any eval fixture
+	// but was confirmed live to keep a spawned "claude -p" process from
+	// exiting for minutes after it had already produced its answer -
+	// "spore hooks watch-inbox" running as its child process, still
+	// alive, is the direct evidence. A dream (proposer/reviewer)
+	// scenario sends no ExtraArgs and hit this every time before this
+	// flag moved here; see docs/todo/eval-harness-for-prompt-surfaces.md,
+	// "The Stop-hook hang".
+	args := []string{"-p", "--permission-mode", "bypassPermissions", "--setting-sources", "project"}
 	args = append(args, req.ExtraArgs...)
 	args = append(args, "--", req.Prompt)
 	run := s.runCommand
