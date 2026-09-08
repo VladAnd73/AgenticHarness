@@ -21,9 +21,9 @@ func writePacketFile(t *testing.T, runDir string, n int, body string) {
 
 func TestLoadPacketsReadsEveryPacketInNumericOrder(t *testing.T) {
 	runDir := t.TempDir()
-	writePacketFile(t, runDir, 2, `{"claim":"second claim","type":"host-state","sessions":["sesn-2"],"tier":"lesson","target":"/tmp/state.md","text":"### RULE: two (2026-09-01)\n"}`)
-	writePacketFile(t, runDir, 10, `{"claim":"tenth claim","type":"host-state","sessions":["sesn-3"],"tier":"lesson","target":"/tmp/state.md","text":"### RULE: ten (2026-09-01)\n"}`)
-	writePacketFile(t, runDir, 1, `{"claim":"first claim","type":"operator-preference","sessions":["sesn-1"],"tier":"lesson","target":"/tmp/state.md","text":"### RULE: one (2026-09-01)\n"}`)
+	writePacketFile(t, runDir, 2, `{"claim":"second claim","type":"host-state","sessions":["sesn-2"],"tier":"memory","target":"/tmp/memory/two.md","text":"---\nname: two\ndescription: second claim\n---\n"}`)
+	writePacketFile(t, runDir, 10, `{"claim":"tenth claim","type":"host-state","sessions":["sesn-3"],"tier":"memory","target":"/tmp/memory/ten.md","text":"---\nname: ten\ndescription: tenth claim\n---\n"}`)
+	writePacketFile(t, runDir, 1, `{"claim":"first claim","type":"operator-preference","sessions":["sesn-1"],"tier":"memory","target":"/tmp/memory/one.md","text":"---\nname: one\ndescription: first claim\n---\n"}`)
 
 	got, err := LoadPackets(runDir)
 	if err != nil {

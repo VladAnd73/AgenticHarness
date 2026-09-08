@@ -136,7 +136,7 @@ directory:
       ],
       "sessions": ["<id of every session your evidence for this claim came from>"],
       "coverage": "anchors read, entries seen out of entries present",
-      "tier":     "lesson | memory | skill",
+      "tier":     "memory | skill",
       "target":   "path the change would land in",
       "text":     "the literal content to write"
     }
@@ -191,9 +191,17 @@ a paraphrase, the type is wrong.
 
 ## Tier: the smallest form that carries the whole claim
 
-- A fact, true of this project or this machine: memory entry.
-- A rule or a preference, one or two lines: lesson, in the instruction
-  files.
+- A fact, a rule, or a preference: memory entry. This covers both "true
+  of this project or this machine" and "a rule or a preference, one or
+  two lines" - both land in the same place and take the same shape, so
+  there is no separate tier for the short prose case. (There used to be
+  a `lesson` tier that appended a heading and body to the project's
+  `state.md`. It is retired: a project's coordinator can rewrite
+  `state.md` down to a size cap during its own wrap-up, and not every
+  project protects a lesson block the way spore's own `state.md` does,
+  so an automated write there was not durable. `state.md`'s own
+  hand-written `CRITICAL LESSON`/`RULE` convention is untouched by this;
+  only the automated write stage's target moved.)
 - Steps in an order, or a decision the next agent has to make: skill.
 
 Do not compress a procedure into one line. The steps are the value, and
@@ -210,23 +218,59 @@ note. Prose that repeats what a check could enforce gets ignored.
 Each tier fixes what `target` and `text` mean, because the write stage
 is plain code and does not interpret either field:
 
-- `lesson`: `target` is the project's `state.md`. `text` is the literal
-  heading and body to append, in the form the scanner already reads:
-  `### CRITICAL LESSON: <title> (<date>)` or `### RULE: <title>
-  (<date>)`, then the body. The write stage appends this verbatim; it
-  invents no heading and reformats nothing.
 - `memory`: `target` is the full path the new memory file should get,
   ending in `.md`, inside the project's memory directory. `text` is the
   whole file, frontmatter included (`name:`, `description:`,
   `metadata: {type: ...}`), exactly as a memory file is written by
   hand. The write stage reads `name` and `description` back out of your
   frontmatter to build the one-line index entry it appends to
-  `MEMORY.md`, so both fields have to be present and accurate.
+  `MEMORY.md`, so both fields have to be present and accurate: text with
+  no `name:` or no `description:` line makes the write stage fail the
+  packet outright rather than silently indexing it under the filename
+  and the string "see file".
 - `skill`: `target` documents the path the skill would get once
   installed (for the reviewer and the report to read); the write stage
   never writes there. `text` is the proposed skill file. It always lands
   under this run's `skill-proposals/`, named from `target`'s parent
   directory.
+
+### Choosing `metadata.type` for a memory entry
+
+Do not pick `metadata.type` from a fixed table keyed on the claim's
+`type` field. The two are independent: an `operator-preference` claim is
+not always `feedback`, and a `host-state` claim is not always `project`.
+What decides it is how the claim itself reads, not which of the five
+claim types produced it. Two real entries in this harness's own memory
+prove the point: "the coordinator account has no sudo rights" and "use
+`GH_TOKEN`, not `GITHUB_TOKEN`, in the per-project vault" are both
+host-state-shaped facts about a machine's setup, yet the first is filed
+as `feedback` (it is written as a directive: never propose `sudo`
+yourself) and the second as `project` (it is written as a fact about how
+this project's tooling is configured). Judge each claim on its own:
+
+- `feedback`: the claim is really a directive about how to act - do X,
+  do not do Y - whether or not the operator said it in those words. Most
+  `operator-preference` claims land here, because they are by
+  definition the operator stating a preference. Most `process-pattern`
+  claims land here too, because a pattern worth writing up is usually
+  "an agent keeps getting this wrong, so do it this way instead."
+- `project`: the claim is a fact about this project, this host, a tool,
+  or the code - true, useful context, but not itself an instruction to
+  act differently. Most `tool-behavior`, `host-state`, and
+  `code-behavior` claims land here.
+- `reference`: the claim is a pointer to where fuller information lives
+  in another system (a tracker, a dashboard, a doc). Rare from this
+  proposer's evidence, since evidence pointers are not what gets written
+  up as a claim.
+- `user`: the claim is about the operator's own role or persona, not
+  about a preference, a fact, or a pattern. This essentially never
+  applies to a dream claim, since nothing in scope here teaches the
+  proposer who the operator is.
+
+When a claim genuinely reads both ways, prefer whichever framing you
+would actually write the `text` in: if the body reads as "always /
+never do X", it is `feedback`; if it reads as "X is true", it is
+`project`.
 
 ## An empty night is a result
 

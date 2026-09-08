@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/versality/spore/internal/coordinator/statedebt"
 	"github.com/versality/spore/internal/dream"
 	"github.com/versality/spore/internal/task"
 )
@@ -40,8 +39,8 @@ func TestDreamGateClearsAnOperatorPreferenceAndHoldsAnInferredClaim(t *testing.T
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
 		"sessions": ["sesn-1"],
-		"tier": "lesson",
-		"target": "/tmp/state.md",
+		"tier": "memory",
+		"target": "/tmp/memory/small-commits.md",
 		"text": "x"
 	}`)
 	dreamWrite(t, filepath.Join(runDir, "packets", "2.json"), `{
@@ -77,14 +76,14 @@ func TestDreamWriteRecordsRefusalsAndWritesConfirmedSurvivors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(f.root, "state.md")
+	target := filepath.Join(f.root, "memory", "prefer-small-commits.md")
 	dreamWrite(t, filepath.Join(runDir, "packets", "1.json"), `{
 		"claim": "operator wants small commits",
 		"type": "operator-preference",
 		"sessions": ["sesn-1"],
-		"tier": "lesson",
+		"tier": "memory",
 		"target": "`+strings.ReplaceAll(target, `\`, `\\`)+`",
-		"text": "### RULE: prefer small commits (2026-09-02)\n"
+		"text": "---\nname: Prefer Small Commits\ndescription: Operator wants large diffs split into small commits.\nmetadata:\n  type: feedback\n---\n\nSplit large diffs.\n"
 	}`)
 	dreamWrite(t, filepath.Join(runDir, "packets", "2.json"), `{
 		"claim": "flag --foo exists",
@@ -110,8 +109,8 @@ func TestDreamWriteRecordsRefusalsAndWritesConfirmedSurvivors(t *testing.T) {
 		t.Fatalf("summary must count the write and the refusal:\n%s", out)
 	}
 	body := dreamRead(t, target)
-	if !strings.Contains(body, "### RULE: prefer small commits") {
-		t.Fatalf("lesson was not written to state.md:\n%s", body)
+	if !strings.Contains(body, "Split large diffs.") {
+		t.Fatalf("memory entry was not written:\n%s", body)
 	}
 	reportPath := filepath.Join(runDir, "report.md")
 	if _, err := os.Stat(reportPath); err != nil {
@@ -200,17 +199,18 @@ func TestDreamFullPipelineDigestGateWriteReports(t *testing.T) {
 	runDir := f.statePath(t, runID)
 
 	stateFile := filepath.Join(f.root, "state.md")
+	correctionTarget := filepath.Join(f.root, "memory", "fetch-origin-before-push.md")
 	staleTarget := filepath.Join(f.root, "memory", "stale.md")
 
 	// Packet 1: the repeated operator correction, proposed as an
-	// operator-preference lesson.
+	// operator-preference memory entry.
 	dreamWrite(t, filepath.Join(runDir, "packets", "1.json"), `{
 		"claim": "operator wants origin fetched before every push",
 		"type": "operator-preference",
 		"sessions": ["fix-a"],
-		"tier": "lesson",
-		"target": "`+strings.ReplaceAll(stateFile, `\`, `\\`)+`",
-		"text": "### RULE: fetch origin before push (2026-09-02)\n\nAlways run git fetch origin first.\n"
+		"tier": "memory",
+		"target": "`+strings.ReplaceAll(correctionTarget, `\`, `\\`)+`",
+		"text": "---\nname: Fetch Origin Before Push\ndescription: Operator wants git fetch origin run before every push.\nmetadata:\n  type: feedback\n---\n\nAlways run git fetch origin first.\n"
 	}`)
 	// Packet 2: a claim that is genuinely false by the time it is
 	// reviewed, standing in for the seven-week-stale-lesson failure
@@ -246,14 +246,20 @@ func TestDreamFullPipelineDigestGateWriteReports(t *testing.T) {
 		t.Fatalf("summary must count one write and one refusal:\n%s", out)
 	}
 
-	// The correction is a lesson block that spore coordinator
-	// state-debt can parse.
-	scan, err := statedebt.Scan(statedebt.Config{StateFile: stateFile})
-	if err != nil {
-		t.Fatal(err)
+	// The correction lands as a memory file, indexed in MEMORY.md, not
+	// as a lesson block in state.md: state.md is never touched by this
+	// pipeline (its hand-written CRITICAL LESSON/RULE convention is
+	// untouched by this change).
+	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
+		t.Fatalf("state.md must never be created by the dream pipeline: %v", err)
 	}
-	if len(scan.Blocks) != 1 || !strings.Contains(scan.Blocks[0].Heading, "RULE: fetch origin before push") {
-		t.Fatalf("state-debt did not find the lesson block, got %+v", scan.Blocks)
+	body := dreamRead(t, correctionTarget)
+	if !strings.Contains(body, "Always run git fetch origin first.") {
+		t.Fatalf("memory entry missing its body:\n%s", body)
+	}
+	index := dreamRead(t, filepath.Join(f.root, "memory", "MEMORY.md"))
+	if !strings.Contains(index, "Fetch Origin Before Push") {
+		t.Fatalf("MEMORY.md must index the new entry:\n%s", index)
 	}
 
 	// The stale claim was refuted, with its reason recorded against the
