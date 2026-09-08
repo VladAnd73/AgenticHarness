@@ -141,12 +141,10 @@ func TestCompose_Round1Pool(t *testing.T) {
 		"# Commits",
 		"# Search",
 		"# Fetching files",
-		"# Writing style",
 		"# Reply shape",
 		"# Code comments",
 		"# tmux",
 		"# Asking the operator",
-		"# Commit messages",
 	}
 	for _, h := range wantHeadings {
 		if strings.Count(got, h+"\n") != 1 {

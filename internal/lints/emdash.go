@@ -15,13 +15,13 @@ import (
 const emDashEnDash = "\u2014\u2013"
 
 // emDashAllowlist exempts files that legitimately need the literal
-// em-dash or en-dash bytes. The only entry is the rule that defines
-// the prohibition: it has to name the characters in backticks for the
-// agent to recognize them. New entries are a design smell; flag in
-// review.
-var emDashAllowlist = map[string]bool{
-	"rules/core/no-emdash.md": true,
-}
+// em-dash or en-dash bytes. Empty for now (the rule that used to need
+// this, rules/core/no-emdash.md, was an orphaned fragment never
+// composed into any rendered file, and was deleted; its content lives
+// in rules/core/writing-style.md instead, which describes the
+// characters in words rather than naming them literally). New entries
+// are a design smell; flag in review.
+var emDashAllowlist = map[string]bool{}
 
 // EmDash flags U+2014 (em-dash) and U+2013 (en-dash) anywhere in
 // tracked text files. Replace with a regular hyphen, colon,

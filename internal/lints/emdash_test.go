@@ -54,15 +54,19 @@ func TestEmDash_RunInRepo(t *testing.T) {
 }
 
 func TestEmDash_AllowlistSkipsRule(t *testing.T) {
+	const allowed = "rules/core/some-allowed-file.md"
+	emDashAllowlist[allowed] = true
+	t.Cleanup(func() { delete(emDashAllowlist, allowed) })
+
 	root := newTestRepo(t, map[string]string{
-		"rules/core/no-emdash.md": "Don't use " + em + " or " + en + ".\n",
-		"other.md":                "stray " + em + " here\n",
+		allowed:    "Don't use " + em + " or " + en + ".\n",
+		"other.md": "stray " + em + " here\n",
 	})
 	issues, err := EmDash{}.Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if len(issues) != 1 || issues[0].Path != "other.md" {
-		t.Fatalf("expected one other.md issue (allowlist skips rules/core/no-emdash.md), got %v", issues)
+		t.Fatalf("expected one other.md issue (allowlist skips %s), got %v", allowed, issues)
 	}
 }
