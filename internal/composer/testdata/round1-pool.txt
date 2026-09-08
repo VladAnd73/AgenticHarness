@@ -5,9 +5,7 @@ core/validate-before-report
 core/commits
 core/search-kagi
 core/fetch-files
-core/no-emdash
 core/tldr-first
 core/code-comments
 core/tmux-api
 core/ask-via-tool
-core/commit-no-attrib
