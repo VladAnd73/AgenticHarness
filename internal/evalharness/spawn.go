@@ -21,6 +21,13 @@ type SpawnRequest struct {
 	Prompt  string
 	WorkDir string
 	Env     []string
+	// ExtraArgs are inserted after the fixed -p/--permission-mode pair
+	// and before Prompt. A dream scenario leaves this empty (text
+	// output is enough to grade files on disk); a full-session scenario
+	// sets it to request a parseable transcript (--output-format
+	// stream-json --verbose) and to skip this host's own
+	// ~/.claude/settings.json (--setting-sources project), which SessionSpawnArgs names.
+	ExtraArgs []string
 }
 
 // SpawnResult is what a finished agent run produced. Stdout is kept
@@ -58,7 +65,15 @@ func (s ClaudeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult
 	// answer a permission prompt, and every scenario already runs
 	// inside a Sandbox with no remote and no push-capable token, which
 	// is what makes bypassing safe here.
-	args := []string{"-p", "--permission-mode", "bypassPermissions", req.Prompt}
+	// "--" ends flag parsing before the prompt: a worker-shaped task
+	// body commonly starts with YAML frontmatter ("---\nstatus:
+	// active\n..."), which claude's own CLI parser otherwise reads as
+	// an unknown option and refuses to run. Production's real spawn
+	// (internal/task/lifecycle.go) does the same; verified live against
+	// a running coordinator's argv.
+	args := []string{"-p", "--permission-mode", "bypassPermissions"}
+	args = append(args, req.ExtraArgs...)
+	args = append(args, "--", req.Prompt)
 	run := s.runCommand
 	if run == nil {
 		run = execCommand
@@ -74,13 +89,24 @@ func execCommand(ctx context.Context, dir string, env []string, args []string) (
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	// Separate buffers, not one shared writer: os/exec copies a
+	// process's stdout and stderr pipes on two concurrent goroutines,
+	// and two goroutines calling Write on the same bytes.Buffer race.
+	// A dream scenario never noticed (it grades files on disk, not this
+	// string), but a scenario that parses this text as line-delimited
+	// JSON (see session.go's AskUserQuestionCalled) needs stdout never
+	// interleaved with stderr noise mid-line.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	err := cmd.Run()
 	code := 0
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		code = exitErr.ExitCode()
 	}
-	return out.String(), code, err
+	out := stdout.String()
+	if stderr.Len() > 0 {
+		out += "\n--- stderr ---\n" + stderr.String()
+	}
+	return out, code, err
 }
