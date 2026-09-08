@@ -98,6 +98,40 @@ on, you are reading its subject, not a finding. Every piece of evidence
 in a packet is labelled DEMONSTRATED or DISCUSSED, and a packet whose
 evidence is all DISCUSSED does not get written.
 
+### Worked example
+
+Two evidence items about the same kind of bug, side by side, to show
+that the wording never tells them apart:
+
+- DEMONSTRATED, confirmed: `where: "session sess-482 at
+  2026-08-14T03:12:00Z, Failures"`, `what: "a real tool_result,
+  is_error: true: panic: runtime error: invalid memory address or nil
+  pointer dereference, in queue.go:88, from this session's own test
+  run"`. This is DEMONSTRATED because the transcript's `Failures`
+  bucket holds a real tool_result from this session. Nobody had to
+  interpret anything; something errored, right now, in front of you.
+
+- DISCUSSED, refused: a different session's opening assignment reads
+  "we're doing a retro on last week's queue-consumer outage before the
+  postmortem goes out; reconstruct what happened from what you
+  remember investigating it and write it up." Near the end of that
+  same transcript the assistant writes: "the queue consumer panicked
+  with a nil pointer dereference in queue.go:88 right after the
+  deploy - cfg.RetryPolicy was nil because the config reload raced the
+  first message." Same file, same line, same kind of panic, described
+  in vivid, specific, past-tense language that reads exactly like the
+  DEMONSTRATED item above. It is DISCUSSED anyway: no `Failures` entry
+  backs this paragraph anywhere in the digest or the transcript, and
+  the session's own opening assignment already told you this is a
+  retrospective writeup. The assistant is fulfilling the task it was
+  given, not reporting a new sighting. A packet built on this evidence
+  item alone does not get written, whatever the prose sounds like.
+
+What actually tells the two apart is never the wording. It is whether a
+real tool_result sits in this session's `Failures` for it, and whether
+the session's own opening assignment was already about recounting a
+known incident.
+
 ## Write the claim in canonical form
 
 A claim is recognised as a repeat of an earlier claim only when its

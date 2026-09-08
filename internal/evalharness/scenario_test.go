@@ -27,6 +27,7 @@ func TestScenariosRegistryHasEveryPhase1DreamScenario(t *testing.T) {
 		{"proposer-demonstrated", KindProposer},
 		{"proposer-discussed-not-demonstrated", KindProposer},
 		{"proposer-empty-night", KindProposer},
+		{"proposer-retrospective-writeup", KindProposer},
 		{"reviewer-fabricated-citation", KindReviewer},
 		{"reviewer-real-evidence", KindReviewer},
 	}

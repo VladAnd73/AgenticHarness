@@ -51,6 +51,41 @@ func TestBuildProposerRunHonoursAnOverrideBriefInsteadOfTheEmbeddedOne(t *testin
 	}
 }
 
+// TestRetrospectiveWriteupFixtureHasNoFailuresEntry pins down the shape
+// this harder fixture depends on: the assistant's account of the outage
+// reads like a real DEMONSTRATED panic (same file, same line, past-tense
+// tool-failure language) but no tool actually errored in this session, so
+// the digest must carry no Failures section and must not surface the
+// panic text at all - it is reachable only by a deep read of the raw
+// transcript, which the session's own score must make it eligible for.
+// If any of this stops holding (e.g. because BuildDigest's
+// classification changes), the fixture would silently stop testing what
+// it claims to.
+func TestRetrospectiveWriteupFixtureHasNoFailuresEntry(t *testing.T) {
+	sb, err := NewSandbox(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runDir, err := BuildProposerRun(sb, "retrospective-writeup", "20260908-test", fixedNow, "")
+	if err != nil {
+		t.Fatalf("BuildProposerRun: %v", err)
+	}
+	digest := readRunFile(t, runDir, "digest.md")
+	if strings.Contains(digest, "### Failures") {
+		t.Fatalf("expected no Failures section in the digest (nothing actually errored this session), got:\n%s", digest)
+	}
+	if strings.Contains(digest, "queue.go:88") {
+		t.Fatalf("expected the panic language to be invisible in digest.md (only reachable via deep read of the raw transcript), got:\n%s", digest)
+	}
+	if !strings.Contains(digest, "deep-read: true") {
+		t.Fatalf("expected this session to score high enough to be flagged deep-read, got:\n%s", digest)
+	}
+	transcript := readRunFile(t, filepath.Join(sb.Projects, "retrospective-writeup"), "session.jsonl")
+	if !strings.Contains(transcript, "queue.go:88") {
+		t.Fatalf("expected the raw transcript a deep read would open to carry the retrospective panic language, got:\n%s", transcript)
+	}
+}
+
 func readRunFile(t *testing.T, runDir, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(runDir, name))
