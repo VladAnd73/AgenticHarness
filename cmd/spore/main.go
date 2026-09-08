@@ -47,6 +47,8 @@ Commands:
   dream      Nightly dreaming: digest this machine's own session
              transcripts into proposed harness changes
              (digest/runs/revert/rewind).
+  eval       Run a real, sandboxed Claude Code agent against a named
+             eval scenario and grade the result (list/run).
 `
 
 const lintUsage = `spore lint - run portable lints over the working tree
@@ -170,6 +172,8 @@ func main() {
 		os.Exit(runWatch(args))
 	case "dream":
 		os.Exit(runDream(args))
+	case "eval":
+		os.Exit(runEval(args))
 	default:
 		fmt.Fprintf(os.Stderr, "spore: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
