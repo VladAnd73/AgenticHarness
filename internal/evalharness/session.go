@@ -33,20 +33,16 @@ const AskViaToolFixtureTaskPath = "fixtures/session/ask-decision/task.md"
 const AskViaToolCandidateConsumerPath = "fixtures/session/ask-decision/consumer-candidate.txt"
 
 // SessionSpawnArgs are the extra claude CLI flags a full-session
-// scenario needs beyond ClaudeSpawner's fixed -p/--permission-mode
-// pair:
-//
-//   - --output-format stream-json --verbose so the transcript can be
-//     graded for a specific tool call, not just read as one text blob.
-//   - --setting-sources project so the spawned process does not load
-//     this host's own ~/.claude/settings.json. That file's Stop hooks
-//     (spore's own fleet/coordinator inbox-watching machinery) are
-//     unrelated to an eval fixture, but were observed live to keep a
-//     headless run from exiting for minutes after it had already
-//     produced its answer (terminal_reason: stop_hook_prevented) --
-//     see "The Stop-hook hang" in
-//     docs/todo/eval-harness-for-prompt-surfaces.md.
-var SessionSpawnArgs = []string{"--output-format", "stream-json", "--verbose", "--setting-sources", "project"}
+// scenario needs beyond ClaudeSpawner's fixed base args: --output-format
+// stream-json --verbose, so the transcript can be graded for a specific
+// tool call, not just read as one text blob. --setting-sources project
+// (this host's fix for "The Stop-hook hang" in
+// docs/todo/eval-harness-for-prompt-surfaces.md) is no longer listed
+// here because ClaudeSpawner.Spawn now includes it in every spawn's
+// base args, not just a full-session one - a dream (proposer/reviewer)
+// scenario needs it exactly as much and was found live to hang without
+// it too.
+var SessionSpawnArgs = []string{"--output-format", "stream-json", "--verbose"}
 
 // LoadAskViaToolFixtureTask returns the fixture task's body text.
 func LoadAskViaToolFixtureTask() (string, error) {

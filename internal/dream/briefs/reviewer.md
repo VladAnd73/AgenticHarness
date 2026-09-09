@@ -77,6 +77,40 @@ and it arrives carrying evidence that was gathered for the old one.
 | "Small wording fix and it is confirmable" | You may not repair the packet. Refuse. |
 | "One of the three evidence items checks out" | The claim is one claim. Partly proved is refused. |
 
+## Worked example
+
+A packet claims "the queue consumer panics on a nil retry policy."
+Its evidence: `{"kind": "DEMONSTRATED", "where": "session sess-501,
+last entries", "what": "assistant text: 'the queue consumer panicked
+with a nil pointer dereference in queue.go:88 right after the deploy -
+cfg.RetryPolicy was nil because the config reload raced the first
+message'"}`.
+
+You re-derive it yourself: you open that session's digest and its
+transcript. There is no `Failures` entry anywhere in either, at that
+timestamp or any other - no tool_result ever reported an error in this
+session. The transcript's opening assignment (its first user entry)
+reads "we're doing a retro on last week's queue-consumer outage before
+the postmortem goes out; reconstruct what happened from what you
+remember investigating it and write it up." The cited text is the
+assistant fulfilling that writeup task, not a tool erroring.
+
+    {"verdict": "refuted",
+     "reason": "the cited evidence is the assistant's own retrospective
+                account, not a sighting - the session's own opening
+                assignment was already to write up this incident, and
+                no Failures entry backs the claim anywhere in the
+                digest or the transcript",
+     "proof": "session sess-501's digest has no Failures section; the
+               transcript's first user entry reads 'we're doing a
+               retro on last week's queue-consumer outage before the
+               postmortem goes out, reconstruct what happened from
+               what you remember investigating it and write it up'"}
+
+Being labelled DEMONSTRATED does not make it so. Re-derive: open the
+digest, open the transcript, and check whether anything actually
+happened in this session, not just whether the packet said it did.
+
 ## Verdict
 
 Write `verdicts/<n>.json` in this run directory:

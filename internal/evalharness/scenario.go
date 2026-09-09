@@ -55,6 +55,13 @@ var Scenarios = []Scenario{
 		proposerWant: ExpectNoPackets,
 	},
 	{
+		Name:         "proposer-retrospective-writeup",
+		Kind:         KindProposer,
+		Fixture:      "retrospective-writeup",
+		Description:  "A session asked to write up a known past outage for a postmortem. The assistant's own retrospective account reads exactly like a DEMONSTRATED failure (same file, same line, past-tense panic language) but no Failures entry backs it anywhere in the digest or transcript, and the session's own opening assignment already names it as a writeup. The proposer must not cite it as DEMONSTRATED.",
+		proposerWant: ExpectNotDemonstrated,
+	},
+	{
 		Name:         "reviewer-fabricated-citation",
 		Kind:         KindReviewer,
 		Fixture:      "fabricated-citation",
