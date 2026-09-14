@@ -71,9 +71,15 @@ Per run, for one project:
    map whose `last_activity` is within 48h, call
    `conversations.replies(thread_ts)` since the thread's own stored
    last-seen reply ts. For each new reply:
-   - Look up `task_slug` for that thread. If a task_slug is set AND
-     `spore task ls` (project-scoped) shows it `active` ->
-     `task.TellProject(project, task_slug, msg)`. Otherwise ->
+   - Look up `task_slug` for that thread. If a task_slug is set, check
+     its status via `task.List(filepath.Join(cwd, "tasks"))` (the same
+     in-process call `runWatchReleases` already makes after
+     `watchContext` chdirs into the project root - NOT a shelled-out
+     `spore task ls`, which is cwd-relative with no project-scoping
+     flag and would silently read the wrong directory from any other
+     invocation; see the `project_spore_task_cwd` lesson). Status
+     `active` -> `task.TellProject(project, task_slug, msg)`.
+     Otherwise (no task_slug, or the task is no longer `active`) ->
      `task.TellProject(project, "coordinator", msg)`, noting "no
      active worker for this thread" in the relayed text so the
      coordinator doesn't have to re-derive that.
@@ -143,9 +149,17 @@ an operator action (Slack admin), not part of the worker's code task.
 
 ## Testing (Worker TDD - write these first, red then green)
 
-Inject the clock (`now`), the Slack API client (fake, mirroring how
-`github.go` injects `SPORE_GH_BINARY`), and the tell/poke funcs, as
-the existing watch tests do. Acceptance scenarios:
+Inject the clock (`now`) and the tell/poke funcs, as the existing
+watch tests do. The Slack side needs a different seam than
+`github.go`'s: there is no Slack CLI to shell out to (the earlier
+`--agent`/headless investigation ruled out the MCP connector for
+non-interactive use, and the plan is a bot token over the Web API
+directly), so define a small `slackClient` interface (something like
+`History(oldest string) ([]Message, error)`, `Replies(threadTS,
+oldest string) ([]Message, error)`, `Permalink(ts string) (string,
+error)`) and inject a fake implementing it in tests, the real HTTP
+client in production - do not try to mirror `SPORE_GH_BINARY`.
+Acceptance scenarios:
 
 1. End-to-end: given a channel with one new top-level message since
    the cursor, when the watcher runs, then it tells the project
@@ -156,9 +170,10 @@ the existing watch tests do. Acceptance scenarios:
    the first time, then it seeds the cursor to "now" and relays
    nothing from channel history that predates this run.
 3. Reply routed to active worker: given a tracked thread whose
-   `task_slug` names a task that `spore task ls` reports `active`,
-   when a new reply lands in that thread, then it is told to that
-   task's slug, not the coordinator.
+   `task_slug` names a task whose frontmatter status (read via
+   `task.List` on the project's `tasks/` dir) is `active`, when a new
+   reply lands in that thread, then it is told to that task's slug,
+   not the coordinator.
 4. Reply routed to coordinator when no active worker: given a tracked
    thread with an empty `task_slug`, or one naming a task that is no
    longer `active`, when a new reply lands, then it is told to the
