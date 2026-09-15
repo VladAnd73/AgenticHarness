@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 )
 
 // SlackMessage is the subset of Slack's message JSON the watcher needs.
@@ -66,6 +67,13 @@ func slackGet(method string, query url.Values, out any) error {
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("slack %s: %w", method, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body := strings.TrimSpace(string(b))
+		if len(body) > 200 {
+			body = body[:200] + "..."
+		}
+		return fmt.Errorf("slack %s: unexpected HTTP status %d: %s", method, resp.StatusCode, body)
 	}
 	var envelope struct {
 		Ok    bool   `json:"ok"`

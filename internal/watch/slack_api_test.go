@@ -2,11 +2,32 @@ package watch
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+// captureStderr redirects os.Stderr to a pipe for the duration of fn and
+// returns what was written. Used to assert on the has_more truncation
+// warning, which is deliberately visible-not-silent (see
+// ConversationsHistory's doc comment).
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	_ = w.Close()
+	os.Stderr = orig
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
 
 // fakeSlack starts an httptest.Server that answers Slack Web API calls from
 // a method -> JSON-body map, and points SPORE_SLACK_API_BASE +
@@ -111,5 +132,45 @@ func TestSlackAPIMissingTokenErrors(t *testing.T) {
 	_, err := ConversationsHistory("C1", "999.0000")
 	if err == nil || !strings.Contains(err.Error(), "SLACK_BOT_TOKEN") {
 		t.Fatalf("want SLACK_BOT_TOKEN error, got %v", err)
+	}
+}
+
+// A non-2xx response (rate limit, outage) commonly has a non-JSON body, so
+// the status code - not just a "bad json" parse error - must surface, or a
+// 429 vs a 503 vs a genuine parse bug are indistinguishable from the text.
+func TestSlackAPINon2xxStatusSurfacesStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, "rate limited")
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("SPORE_SLACK_API_BASE", srv.URL)
+	t.Setenv("SLACK_BOT_TOKEN", "xoxb-test-token")
+
+	_, err := ConversationsHistory("C1", "999.0000")
+	if err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("want error containing status code 429, got %v", err)
+	}
+}
+
+func TestConversationsHistoryHasMoreWarnsAndReturnsFirstPage(t *testing.T) {
+	fakeSlack(t, map[string]string{
+		"conversations.history": `{"ok":true,"has_more":true,"messages":[
+			{"ts":"1000.0001","user":"U1","text":"first"}
+		]}`,
+	})
+	var msgs []SlackMessage
+	var err error
+	stderr := captureStderr(t, func() {
+		msgs, err = ConversationsHistory("C1", "999.0000")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Ts != "1000.0001" {
+		t.Fatalf("got %+v, want the first page's message returned", msgs)
+	}
+	if !strings.Contains(stderr, "C1") {
+		t.Fatalf("want a has_more warning mentioning the channel, got %q", stderr)
 	}
 }
