@@ -58,12 +58,17 @@ func RunSlack(projectRoot, project string, dryRun bool, now time.Time,
 	if err != nil {
 		return rep, err
 	}
+	// maxTs only advances past a message once it is fully, successfully
+	// handled. Advancing past a message whose tell failed would be worse
+	// than re-telling it: Slack's oldest= excludes messages at or before
+	// the cursor, so that message would never be fetched again and its
+	// thread would be silently dropped rather than retried next poll.
 	maxTs := st.Cursor
 	for _, m := range msgs {
-		if m.Ts > maxTs {
-			maxTs = m.Ts
-		}
 		if !m.IsThreadRoot() {
+			if m.Ts > maxTs {
+				maxTs = m.Ts
+			}
 			continue // a reply that was also posted to the channel
 		}
 		permalink, perr := Permalink(cfg.ChannelID, m.Ts)
@@ -73,10 +78,17 @@ func RunSlack(projectRoot, project string, dryRun bool, now time.Time,
 		msg := formatNewThread(m, permalink)
 		if !dryRun {
 			if err := tell("coordinator", msg); err != nil {
+				if maxTs != st.Cursor {
+					st.Cursor = maxTs
+				}
+				_ = st.Save()
 				return rep, err
 			}
 			st.Threads[m.Ts] = SlackThread{LastActivity: now, LastReplyTS: m.Ts}
 			dirty = true
+		}
+		if m.Ts > maxTs {
+			maxTs = m.Ts
 		}
 		rep.NewThreads++
 	}
@@ -114,6 +126,8 @@ func RunSlack(projectRoot, project string, dryRun bool, now time.Time,
 			}
 			if !dryRun {
 				if err := tell(target, formatReply(r, ts, active)); err != nil {
+					st.Threads[ts] = th
+					_ = st.Save()
 					return rep, err
 				}
 			}

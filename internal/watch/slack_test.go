@@ -263,6 +263,92 @@ func TestRunSlackDryRun(t *testing.T) {
 	}
 }
 
+// A tell failure partway through a batch of new threads must not discard
+// the progress already made for earlier, successfully-told threads in the
+// same run: the cursor must advance only past the last SUCCESSFUL message
+// (never past the failed one, or Slack's oldest= exclusion would silently
+// drop it forever), and the successful thread must already be tracked so a
+// retry does not re-tell it.
+func TestRunSlackTellFailureMidBatchPersistsEarlierSuccess(t *testing.T) {
+	root, tells, tellOK := setupSlack(t, oneChannelConfig, map[string]string{
+		"conversations.history": `{"ok":true,"has_more":false,"messages":[
+			{"ts":"1000.0002","user":"U1","text":"thread A"},
+			{"ts":"1000.0003","user":"U2","text":"thread B"}
+		]}`,
+		"chat.getPermalink": `{"ok":true,"permalink":"https://slack.example/p1"}`,
+	})
+	st, _ := LoadSlackState("proj")
+	st.Cursor = "1000.0000"
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	failB := func(slug, msg string) error {
+		if strings.Contains(msg, "thread B") {
+			return errors.New("inbox unwritable")
+		}
+		return tellOK(slug, msg)
+	}
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	if _, err := RunSlack(root, "proj", false, now, failB, alwaysInactive); err == nil {
+		t.Fatal("want error when tell(B) fails")
+	}
+	if len(*tells) != 1 || !strings.Contains((*tells)[0].msg, "thread A") {
+		t.Fatalf("want only A told before the failure, got %v", *tells)
+	}
+	after, err := LoadSlackState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := after.Threads["1000.0002"]; !ok {
+		t.Fatal("A's successful progress must be persisted despite B's failure")
+	}
+	if _, ok := after.Threads["1000.0003"]; ok {
+		t.Fatal("B must not be tracked since its tell failed")
+	}
+	if after.Cursor != "1000.0002" {
+		t.Fatalf("cursor = %q, want advanced only past A (1000.0002), not past the failed B", after.Cursor)
+	}
+}
+
+// The reply-relay loop has the same partial-progress hazard: a later
+// reply's tell failing must not discard an earlier reply's watermark
+// advance for the same thread.
+func TestRunSlackReplyTellFailurePersistsEarlierReplyWatermark(t *testing.T) {
+	root, tells, tellOK := setupSlack(t, oneChannelConfig, map[string]string{
+		"conversations.history": `{"ok":true,"has_more":false,"messages":[]}`,
+		"conversations.replies": `{"ok":true,"messages":[
+			{"ts":"1000.0005","user":"U2","text":"first reply","thread_ts":"1000.0001"},
+			{"ts":"1000.0006","user":"U2","text":"second reply","thread_ts":"1000.0001"}
+		]}`,
+	})
+	st, _ := LoadSlackState("proj")
+	st.Cursor = "1000.0001"
+	st.Threads["1000.0001"] = SlackThread{LastActivity: time.Date(2026, 9, 15, 11, 0, 0, 0, time.UTC), LastReplyTS: "1000.0001"}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	failSecond := func(slug, msg string) error {
+		if strings.Contains(msg, "second reply") {
+			return errors.New("inbox unwritable")
+		}
+		return tellOK(slug, msg)
+	}
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	if _, err := RunSlack(root, "proj", false, now, failSecond, alwaysInactive); err == nil {
+		t.Fatal("want error when the second reply's tell fails")
+	}
+	if len(*tells) != 1 || !strings.Contains((*tells)[0].msg, "first reply") {
+		t.Fatalf("want only the first reply told before the failure, got %v", *tells)
+	}
+	after, err := LoadSlackState("proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Threads["1000.0001"].LastReplyTS != "1000.0005" {
+		t.Fatalf("LastReplyTS = %q, want advanced only past the first reply (1000.0005)", after.Threads["1000.0001"].LastReplyTS)
+	}
+}
+
 // A tell failure on a new thread must surface as a run error (mirrors
 // RunReleases' behavior: an envelope failing to write is not swallowed).
 func TestRunSlackTellFailurePropagates(t *testing.T) {
