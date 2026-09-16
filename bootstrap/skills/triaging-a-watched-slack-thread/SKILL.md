@@ -7,6 +7,11 @@ description: Use when a spore coordinator receives a "New Slack thread from..." 
 
 ## Overview
 
+This skill covers judgment and dispatch bookkeeping only - for a
+message that turns out to be a bug or issue report, the actual
+investigation is a separate skill, `investigating-a-reported-bug`, run
+on top of the steps below.
+
 A watched Slack thread is a request channel like any other `tell` -
 the coordinator's ordinary judgment and brief-writing apply
 unchanged. The one thing that's genuinely different: the arc from
@@ -21,7 +26,14 @@ readable off disk by a session that remembers none of this.
 1. **Judge it first.** Not every message needs a worker. A question
    you can answer directly, or noise, doesn't need a task - decide,
    don't default to dispatching.
-2. **If it needs a worker**, write a real brief (**REQUIRED
+2. **If the message describes a bug or issue** - something broken,
+   wrong, or behaving unexpectedly, not a general request or a
+   question you can answer directly - use **investigating-a-reported-bug**
+   instead of writing an ordinary brief. It dispatches an
+   investigator/verifier pair rather than a single worker. The rest of
+   this list (frontmatter, thread-linking, ack) still applies on top,
+   unchanged.
+3. **Otherwise, if it needs a worker**, write a real brief (**REQUIRED
    SUB-SKILL:** writing-a-spore-worker-brief) and `spore task start`
    it as usual. Then hand-edit the new `tasks/<slug>.md` to add one
    frontmatter line: `slack_thread: <permalink>`. There's no CLI flag
@@ -30,7 +42,7 @@ readable off disk by a session that remembers none of this.
    preserves any key it doesn't recognize in `Extra` and round-trips
    it on every future parse/write, so it survives edits by other
    tooling and by a future coordinator session.
-3. **Link the thread** so future replies come back annotated:
+4. **Link the thread** so future replies come back annotated:
    `spore watch slack-set-thread <thread_ts> <task_slug>`. This only
    changes what the reply MESSAGE says (names the worker) - every
    reply still always `tell`s the coordinator, never the worker
@@ -40,7 +52,7 @@ readable off disk by a session that remembers none of this.
    segment, then insert a `.` six digits from the end (verified live
    2026-09-16: permalink `.../p1789549306348279` -> ts
    `1789549306.348279`).
-4. **Post one acknowledgment** into the thread naming the task slug,
+5. **Post one acknowledgment** into the thread naming the task slug,
    so the reporter knows it's tracked (`chat.postMessage` with
    `thread_ts` set - see the `slack` recipe, `spore recipes show
    slack`). Resolve their Slack user ID to a real name first if you
@@ -79,3 +91,4 @@ instead of trusting session memory.
 | Trusting `slack-set-thread` alone to "remember to post the result" | That CLI only fixes reply ROUTING - it records the mapping in `slack-watch.json`, not on the task, and it never posts to Slack. Write `slack_thread` into the task file too, or a cold session at done-time has nothing to check. |
 | Leaving the raw Slack user ID in a brief | Resolve it with `users.info` (slack recipe) so a human reading the brief later isn't stuck decoding an ID. |
 | Treating this as one continuous session | The arc from thread to posted result can and usually will span a respawn. Anything that matters must be on disk - the task file, `slack-watch.json` - never only in this turn's context. |
+| Writing an ordinary single-worker brief for a bug report | Use `investigating-a-reported-bug` instead - a bug report needs an investigator and a separate blind verifier, not one self-checking worker. |
