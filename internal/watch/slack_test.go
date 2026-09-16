@@ -126,8 +126,9 @@ func TestRunSlackReplyNoActiveWorkerGoesToCoordinator(t *testing.T) {
 	}
 }
 
-// Scenario 3: reply routed to the active worker, not the coordinator.
-func TestRunSlackReplyActiveWorkerGoesToWorker(t *testing.T) {
+// Scenario 3: reply on a thread with an active worker still goes to the
+// coordinator, but the message names which worker is on the thread.
+func TestRunSlackReplyActiveWorkerGoesToCoordinatorNamingWorker(t *testing.T) {
 	root, tells, tell := setupSlack(t, oneChannelConfig, map[string]string{
 		"conversations.history": `{"ok":true,"has_more":false,"messages":[]}`,
 		"conversations.replies": `{"ok":true,"messages":[
@@ -153,8 +154,11 @@ func TestRunSlackReplyActiveWorkerGoesToWorker(t *testing.T) {
 	if rep.RepliesRelayed != 1 {
 		t.Fatalf("want 1 reply relayed, got %+v", rep)
 	}
-	if len(*tells) != 1 || (*tells)[0].slug != "investigate-login-bug" {
-		t.Fatalf("want one tell to investigate-login-bug, got %v", *tells)
+	if len(*tells) != 1 || (*tells)[0].slug != "coordinator" {
+		t.Fatalf("want one tell to coordinator, got %v", *tells)
+	}
+	if !strings.Contains((*tells)[0].msg, `"investigate-login-bug"`) {
+		t.Fatalf("msg must name the active worker:\n%s", (*tells)[0].msg)
 	}
 }
 
@@ -212,8 +216,11 @@ func TestRunSlackHonorsMappingSetBetweenRuns(t *testing.T) {
 	if _, err := RunSlack(root, "proj", false, now, tell, alwaysActive); err != nil {
 		t.Fatal(err)
 	}
-	if len(*tells) != 1 || (*tells)[0].slug != "investigate-login-bug" {
-		t.Fatalf("want tell routed to the mapping set between runs, got %v", *tells)
+	if len(*tells) != 1 || (*tells)[0].slug != "coordinator" {
+		t.Fatalf("want tell still routed to coordinator even with a mapping set between runs, got %v", *tells)
+	}
+	if !strings.Contains((*tells)[0].msg, `"investigate-login-bug"`) {
+		t.Fatalf("msg must name the mapped worker:\n%s", (*tells)[0].msg)
 	}
 }
 

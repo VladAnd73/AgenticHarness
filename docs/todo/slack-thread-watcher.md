@@ -169,11 +169,12 @@ Acceptance scenarios:
 2. First-run seeding: given no prior state, when the watcher runs for
    the first time, then it seeds the cursor to "now" and relays
    nothing from channel history that predates this run.
-3. Reply routed to active worker: given a tracked thread whose
-   `task_slug` names a task whose frontmatter status (read via
+3. Reply on a thread with an active worker: given a tracked thread
+   whose `task_slug` names a task whose frontmatter status (read via
    `task.List` on the project's `tasks/` dir) is `active`, when a new
-   reply lands in that thread, then it is told to that task's slug,
-   not the coordinator.
+   reply lands in that thread, then it is still told to the
+   coordinator (never directly to the worker), and the relayed text
+   names which worker's slug is on the thread.
 4. Reply routed to coordinator when no active worker: given a tracked
    thread with an empty `task_slug`, or one naming a task that is no
    longer `active`, when a new reply lands, then it is told to the
