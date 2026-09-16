@@ -100,12 +100,13 @@ the verifier must check the exact file state the investigator saw, not
 a moved target if the real repo changes mid-investigation. Scratch
 clones are deleted once the investigation closes.
 
-**Open prerequisite, operator-owned**: this needs a GitHub token
-scoped for read access across the org's repos. The existing `GH_TOKEN`
-in this host's vaults is scoped per-project/per-org already (see
-project memory on Linear/GitHub token scoping) - do not assume it
-already covers this. Confirm scope, or provision a new token, before
-this ships.
+**Verified 2026-09-16, no longer an open item**: the existing global
+`GH_TOKEN` already covers this. The coordinator confirmed live -
+`gh api orgs/marketertechnologies/repos` lists the org's repos
+(including `marketer-frontend` and `marketer`), and a real
+`git clone --depth 1` of `marketertechnologies/marketer-frontend`
+(a private repo) succeeded with no extra setup. No new token
+provisioning is needed before this ships.
 
 ### Stage 2: verifier (`spore task`, full worker, no PR)
 
@@ -186,7 +187,7 @@ not from this doc alone.
   only. A human can still use `linear-bug-report` on top of a finding.
 - Any code fix, PR, or commit produced by the investigation pipeline
   itself. It is read-only research, always, in every repo it touches.
-- Repos not on GitHub, or not reachable by the operator's token.
+- Repos not on GitHub, or not reachable by the existing `GH_TOKEN`.
 - A cross-org token with WRITE access anywhere - read-only clone only,
   ever.
 - Extending the org-wide clone mechanism to any project other than
