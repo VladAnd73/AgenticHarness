@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/task"
@@ -33,7 +34,7 @@ func tellWithPoke(project string, tell func(slug, msg string) error) func(slug, 
 
 func runWatch(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: spore watch <prs|releases> [--project-root DIR] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "usage: spore watch <prs|releases|slack|slack-set-thread> [--project-root DIR] [--dry-run]")
 		return 1
 	}
 	switch args[0] {
@@ -41,8 +42,12 @@ func runWatch(args []string) int {
 		return runWatchPRs(args)
 	case "releases":
 		return runWatchReleases(args)
+	case "slack":
+		return runWatchSlack(args)
+	case "slack-set-thread":
+		return runWatchSlackSetThread(args)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: spore watch <prs|releases> [--project-root DIR] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "usage: spore watch <prs|releases|slack|slack-set-thread> [--project-root DIR] [--dry-run]")
 		return 1
 	}
 }
@@ -88,6 +93,72 @@ func runWatchReleases(args []string) int {
 		return 1
 	}
 	fmt.Printf("release-watch %s: %d poke(s), %d repo(s) unchanged\n", project, rep.Pokes, rep.Unchanged)
+	return 0
+}
+
+func runWatchSlack(args []string) int {
+	fs := flag.NewFlagSet("watch slack", flag.ExitOnError)
+	root := fs.String("project-root", "", "project root (default: cwd)")
+	dryRun := fs.Bool("dry-run", false, "report without telling or saving state")
+	_ = fs.Parse(args[1:])
+
+	cwd, project, code := watchContext(*root)
+	if code != 0 {
+		return code
+	}
+	tell := tellWithPoke(project, task.Tell)
+	taskActive := func(tasksDir, slug string) (bool, error) {
+		metas, err := task.List(tasksDir)
+		if err != nil {
+			return false, err
+		}
+		for _, m := range metas {
+			if m.Slug == slug {
+				return m.Status == "active", nil
+			}
+		}
+		return false, nil
+	}
+	rep, err := watch.RunSlack(cwd, project, *dryRun, time.Now(), tell, taskActive)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "spore watch: %v\n", err)
+		return 1
+	}
+	fmt.Printf("slack-watch %s: %d new thread(s), %d repl(y/ies) relayed, %d thread(s) pruned\n",
+		project, rep.NewThreads, rep.RepliesRelayed, rep.Pruned)
+	return 0
+}
+
+func runWatchSlackSetThread(args []string) int {
+	fs := flag.NewFlagSet("watch slack-set-thread", flag.ExitOnError)
+	root := fs.String("project-root", "", "project root (default: cwd)")
+	_ = fs.Parse(args[1:])
+	rest := fs.Args()
+	if len(rest) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: spore watch slack-set-thread [--project-root DIR] <thread_ts> <task_slug>")
+		return 1
+	}
+	threadTS, taskSlug := rest[0], rest[1]
+
+	_, project, code := watchContext(*root)
+	if code != 0 {
+		return code
+	}
+	st, err := watch.LoadSlackState(project)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "spore watch: %v\n", err)
+		return 1
+	}
+	if _, ok := st.Threads[threadTS]; !ok {
+		fmt.Fprintf(os.Stderr, "spore watch: unknown thread %s (not currently tracked)\n", threadTS)
+		return 1
+	}
+	st.SetTaskSlug(threadTS, taskSlug)
+	if err := st.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "spore watch: %v\n", err)
+		return 1
+	}
+	fmt.Printf("slack-watch %s: thread %s -> %s\n", project, threadTS, taskSlug)
 	return 0
 }
 

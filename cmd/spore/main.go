@@ -43,7 +43,7 @@ Commands:
   worker     Worker support hooks (token-monitor).
   migrate    Apply pending host-state migrations bundled with the CLI.
   recipes    Browse the embedded recipe library (ls / show <name>).
-  watch      Monitor GitHub PRs and checks (prs subcommand).
+  watch      Monitor GitHub PRs/checks, releases, and a Slack channel (prs|releases|slack subcommands).
   dream      Nightly dreaming: digest this machine's own session
              transcripts into proposed harness changes
              (digest/runs/revert/rewind).
