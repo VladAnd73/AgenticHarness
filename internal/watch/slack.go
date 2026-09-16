@@ -16,15 +16,17 @@ type SlackReport struct {
 	Pruned         int
 }
 
-// RunSlack polls the configured Slack channel: new top-level threads are
-// told to the project's coordinator; new replies on tracked threads are
-// told to the owning worker if it is still active, otherwise to the
-// coordinator; threads idle more than 48h are dropped and no longer
-// polled. now is injected for deterministic tests. tell delivers a message
-// to a slug WITHIN this project (this design is single fixed-project, so
-// no cross-project TellProject is needed - matches task.Tell's shape).
-// taskActive reports whether slug names a task in tasksDir with status
-// "active".
+// RunSlack polls the configured Slack channel: new top-level threads and
+// new replies on tracked threads are both always told to the project's
+// coordinator, never directly to a worker - the coordinator decides
+// whether to relay or act itself. When a tracked thread has an active
+// worker, the reply message names that worker's slug so the coordinator
+// knows who already owns the thread; otherwise it notes no worker is
+// assigned. now is injected for deterministic tests. tell delivers a
+// message to a slug WITHIN this project (this design is single
+// fixed-project, so no cross-project TellProject is needed - matches
+// task.Tell's shape). taskActive reports whether slug names a task in
+// tasksDir with status "active".
 func RunSlack(projectRoot, project string, dryRun bool, now time.Time,
 	tell func(slug, msg string) error,
 	taskActive func(tasksDir, slug string) (bool, error),
@@ -120,12 +122,8 @@ func RunSlack(projectRoot, project string, dryRun bool, now time.Time,
 					fmt.Fprintf(os.Stderr, "slack-watch: task status for %s: %v\n", th.TaskSlug, err)
 				}
 			}
-			target := "coordinator"
-			if active {
-				target = th.TaskSlug
-			}
 			if !dryRun {
-				if err := tell(target, formatReply(r, ts, active)); err != nil {
+				if err := tell("coordinator", formatReply(r, ts, active, th.TaskSlug)); err != nil {
 					st.Threads[ts] = th
 					_ = st.Save()
 					return rep, err
@@ -158,10 +156,10 @@ func formatNewThread(m SlackMessage, permalink string) string {
 	return fmt.Sprintf("New Slack thread from %s: %q - %s", m.User, m.Text, link)
 }
 
-func formatReply(r SlackMessage, threadTS string, activeWorker bool) string {
-	note := ""
-	if !activeWorker {
-		note = " (no active worker for this thread)"
+func formatReply(r SlackMessage, threadTS string, activeWorker bool, taskSlug string) string {
+	note := " (no active worker for this thread)"
+	if activeWorker {
+		note = fmt.Sprintf(" (worker %q is on this thread)", taskSlug)
 	}
 	return fmt.Sprintf("Slack update on thread %s from %s: %q%s", threadTS, r.User, r.Text, note)
 }
