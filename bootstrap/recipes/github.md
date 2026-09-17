@@ -138,6 +138,38 @@ These work without `spore-with-secrets` once the credential
 helper above is wired -- git invokes the helper itself, and the
 helper wraps the gh call.
 
+### Pin a shallow clone to a specific commit SHA
+
+`git clone --depth 1 <url>` only gets you the tip of whatever ref you
+asked for (the default branch, unless you pass `--branch`) - it does
+NOT let you land on an arbitrary historical commit. If the SHA you
+need isn't that tip, `git checkout <sha>` right after a plain shallow
+clone fails (`fatal: reference is not a tree: <sha>`) because that
+commit's object was never fetched.
+
+Pin correctly with a fetch-then-checkout, after the initial clone:
+
+```
+git clone --depth 1 <url> <dest>
+cd <dest>
+git fetch --depth 1 origin <sha>
+git checkout <sha>
+```
+
+The `git fetch --depth 1 origin <sha>` fetches exactly that commit
+object (and its tree) into the local repo regardless of which ref
+reaches it; the `git checkout <sha>` that follows now succeeds because
+the object exists locally. Verify you landed where you meant to before
+handing the path off to anyone else:
+
+```
+git rev-parse HEAD   # must equal <sha>
+```
+
+This is the shape any coordinator-mediated pinned clone needs - e.g.
+the `investigating-a-reported-bug` skill's shared investigator/verifier
+repo access, where both workers must see the exact same commit.
+
 ### Push a feature branch
 
 ```
