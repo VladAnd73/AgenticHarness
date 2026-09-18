@@ -77,6 +77,11 @@ Given the bug report text, the worker:
 - Tags every claim it drafts with a real, checkable pointer - a
   `file:line`, a Sentry issue link, a Linear ticket ID, an exact log
   line. A claim with no pointer does not go in the draft.
+- If it can work out how to reproduce the bug, states the steps
+  plainly in its draft as its own narrative (not a citation - the
+  verifier never checks this, same as the rest of stage 1's
+  reasoning). Absence of reproduction steps is fine; inventing
+  plausible-sounding ones is not.
 - Ends in exactly one of the three states from "Goal" above, stated
   explicitly - never something in between dressed up as more certain
   than it is.
@@ -138,6 +143,41 @@ existing "nothing auto-posts, coordinator relays" rule with: the
 coordinator only ever posts the VERIFIED result, never the
 investigator's raw draft.
 
+### Stage 3: document the investigation (KB entry)
+
+After delivery, for EVERY closed investigation regardless of which of
+the three outcome states it landed in - never skip this because the
+result was "found nothing relevant" - the coordinator writes one file:
+`docs/investigations/<date>-<slug>.md` in the `assistant` repo (the
+owning project, not spore). This is the raw material for a future KB:
+spotting patterns in what kinds of citations keep getting rejected,
+and eventually feeding that back into how the investigator searches.
+
+Lean frontmatter (filterable metadata only):
+
+```yaml
+outcome: possible-solution | leads-plus-stuck | found-nothing
+thread: <permalink>
+investigator_task: <slug>
+verifier_task: <slug>
+repos: [org/repo, ...]
+date: <YYYY-MM-DD>
+```
+
+Verbose body (the actual analysis material - do not summarize this
+away into counts):
+
+- The raw CS report text, verbatim.
+- Reported reproduction steps, if the investigator worked any out -
+  labeled plainly as the investigator's own unverified narrative, not
+  something the verifier re-checked.
+- **Every citation examined, listed individually**: the exact pointer,
+  the investigator's claim about what it shows, the verifier's verdict
+  (CONFIRMED or REJECTED), and the verifier's actual reasoning for that
+  verdict. Rejected citations keep full detail - they are not a
+  discard, they are the point of this file.
+- The final delivered Slack message, verbatim.
+
 ### Skill surface
 
 A new skill (or a clearly separated section inside
@@ -167,6 +207,12 @@ recipe and the triaging skill already shipped in PR #34.
   in its worktree, when `spore coordinator verify-done` runs, then it
   returns `suspect-hallucination` and this is expected, not a bug -
   confirm against the `tell` content and close with `--force`.
+- Given a finished investigation in ANY of the three outcome states
+  (including "found nothing relevant"), when the coordinator closes
+  it, then `docs/investigations/<date>-<slug>.md` exists in the
+  `assistant` repo, and every citation from the verifier's verdict
+  appears individually with its pointer, the investigator's claim,
+  the verdict, and the verifier's reasoning - not just a count.
 
 **Open implementation-time decision, not settled here**: should the
 verifier's grading machinery extend `internal/evalharness`'s

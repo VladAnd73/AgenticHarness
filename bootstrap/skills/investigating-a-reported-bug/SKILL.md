@@ -1,6 +1,6 @@
 ---
 name: investigating-a-reported-bug
-description: Use when a spore coordinator judges a watched Slack message (or any other bug report) as describing an actual bug or issue, not a question or a general request, and needs a grounded, cited answer before replying. Covers dispatching a full investigator worker, granting it read-only access to a pinned clone of any repo it names, dispatching a separate blind verifier that sees only the citation list, and composing the one verified Slack reply. Builds on triaging-a-watched-slack-thread for thread linking and dispatch bookkeeping - use both together for a Slack-sourced bug report.
+description: Use when a spore coordinator judges a watched Slack message (or any other bug report) as describing an actual bug or issue, not a question or a general request, and needs a grounded, cited answer before replying. Covers dispatching a full investigator worker, granting it read-only access to a pinned clone of any repo it names, dispatching a separate blind verifier that sees only the citation list, composing the one verified Slack reply, and writing a verbose per-citation KB entry once the investigation closes. Builds on triaging-a-watched-slack-thread for thread linking and dispatch bookkeeping - use both together for a Slack-sourced bug report.
 ---
 
 # investigating-a-reported-bug
@@ -46,6 +46,11 @@ draft that ends in exactly one of three states, named explicitly:
 **Do NOT produce:** no code edits, no commit, no push, no PR, no
 ticket filed, no repo cloned on its own authority, nothing between
 those three states dressed up as more certain than it is.
+
+If it can work out how to reproduce the bug, the investigator states
+the steps plainly in its draft as its own narrative - not a citation,
+the verifier never checks this. Absence of reproduction steps is fine;
+inventing plausible-sounding ones is not.
 
 Tell the investigator to reach for existing tools before inventing
 search logic, roughly in this order:
@@ -143,6 +148,39 @@ result (the verifier's surviving claims), never the investigator's raw
 draft - even while the verifier is still running, do not post the
 investigator's draft as an interim update.
 
+## Stage 3: document the investigation (KB entry)
+
+After posting the Slack reply, for EVERY closed investigation - never
+skip this because the result was "found nothing relevant" - write one
+file: `docs/investigations/<date>-<slug>.md` in the `assistant` repo
+(the project running this pipeline, not spore). This is the raw
+material for a future KB - spotting patterns in what kinds of
+citations keep getting rejected, and eventually feeding that back into
+how the investigator searches.
+
+Lean frontmatter (filterable metadata only):
+
+```yaml
+outcome: possible-solution | leads-plus-stuck | found-nothing
+thread: <permalink>
+investigator_task: <slug>
+verifier_task: <slug>
+repos: [org/repo, ...]
+date: <YYYY-MM-DD>
+```
+
+Verbose body - do not summarize this away into counts:
+
+- The raw CS report text, verbatim.
+- Reported reproduction steps, if any, labeled plainly as the
+  investigator's own unverified narrative.
+- **Every citation examined, listed individually**: the exact pointer,
+  the investigator's claim, the verifier's verdict (CONFIRMED or
+  REJECTED), and the verifier's actual reasoning for that verdict.
+  Rejected citations keep full detail - they are the point of this
+  file, not a discard.
+- The final delivered Slack message, verbatim.
+
 ## Common mistakes
 
 | Mistake | Reality |
@@ -153,6 +191,8 @@ investigator's draft as an interim update.
 | Panicking at `suspect-hallucination` on either stage's `verify-done` | Expected for report-only tasks with no commits - see docs/evidence.md. Confirm against the `tell` content, close with `--force`. |
 | Treating a verifier verdict that stripped every claim as a failure | It's the "found nothing relevant" state working as designed - post it plainly, never invent a softer answer. |
 | Filing a Linear ticket automatically from a finding | Out of scope by design - Slack reply only. A human can still run `linear-bug-report` on top of a finding afterward. |
+| Skipping the KB write because the result was "found nothing relevant" | Document every outcome, not just solved ones - the whole point is to spot patterns in what gets rejected over time. |
+| Writing citation COUNTS instead of the citations themselves in the KB entry | The verbose per-citation detail (pointer, claim, verdict, reasoning) is the analysis material. A count is useless for spotting a pattern later. |
 
 ## See also
 
