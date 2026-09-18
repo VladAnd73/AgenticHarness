@@ -92,3 +92,4 @@ instead of trusting session memory.
 | Leaving the raw Slack user ID in a brief | Resolve it with `users.info` (slack recipe) so a human reading the brief later isn't stuck decoding an ID. |
 | Treating this as one continuous session | The arc from thread to posted result can and usually will span a respawn. Anything that matters must be on disk - the task file, `slack-watch.json` - never only in this turn's context. |
 | Writing an ordinary single-worker brief for a bug report | Use `investigating-a-reported-bug` instead - a bug report needs an investigator and a separate blind verifier, not one self-checking worker. |
+| Linking the thread once at initial dispatch, then leaving it pointed at that slug through a multi-stage pipeline | Re-run `slack-set-thread` at every stage handoff (e.g. `investigating-a-reported-bug`'s Stage 2) so the recorded slug always names whichever worker is actually running. |
