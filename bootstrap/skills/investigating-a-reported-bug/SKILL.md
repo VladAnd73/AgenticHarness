@@ -108,6 +108,23 @@ worker - is the one that clones it:
 
 Dispatched only after the investigator's `tell` lands.
 
+**If the thread was linked** (step 4 of `triaging-a-watched-slack-thread`
+ran, so the task's frontmatter carries a `slack_thread` line): re-run
+`spore watch slack-set-thread <thread_ts> <verifier-slug>`, using the
+same `<thread_ts>` derived in that step, now pointing at the verifier's
+slug instead of the investigator's. The link names exactly one slug at
+a time - `SetTaskSlug` in `internal/watch/slack_state.go` overwrites,
+it never accumulates - and every reply is checked live against
+whichever slug is currently recorded (`RunSlack` / `formatReply` in
+`internal/watch/slack.go`, via `taskActive`). Left pointed at the
+investigator, a reply arriving while the verifier is active would
+misreport "(no active worker for this thread)" even though a worker
+genuinely owns the thread. No matching un-link is needed when stage 2
+itself closes: `taskActive` returns false for a task that is no longer
+`active`, and `formatReply` only names the slug when a worker actually
+IS active, so the last-known slug going stale in `slack-watch.json`
+after the whole investigation closes is inert, not misleading.
+
 **Deliverable:** one `spore task tell coordinator` report with a
 verdict - each citation marked confirmed or rejected, and why -
 degrading to the honest "found nothing relevant" state if every
