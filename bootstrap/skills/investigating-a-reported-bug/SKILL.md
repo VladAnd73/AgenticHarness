@@ -1,6 +1,6 @@
 ---
 name: investigating-a-reported-bug
-description: Use when a spore coordinator judges a watched Slack message (or any other bug report) as describing an actual bug or issue, not a question or a general request, and needs a grounded, cited answer before replying. Covers dispatching a full investigator worker, granting it read-only access to a pinned clone of any repo it names, dispatching a separate blind verifier that sees only the citation list, composing the one verified Slack reply, and writing a verbose per-citation KB entry once the investigation closes. Builds on triaging-a-watched-slack-thread for thread linking and dispatch bookkeeping - use both together for a Slack-sourced bug report.
+description: Use when a spore coordinator judges a watched Slack message (or any other bug report) as describing an actual bug or issue, not a question or a general request, and needs a grounded, cited answer before replying. Covers dispatching a full investigator worker, granting it read-only access to a pinned clone of any repo it names, dispatching a separate blind verifier that sees only the citation list, restarting the pipeline when new information supersedes an in-flight verifier, composing the one verified Slack reply, and writing a verbose per-citation KB entry once the investigation closes. Builds on triaging-a-watched-slack-thread for thread linking and dispatch bookkeeping - use both together for a Slack-sourced bug report.
 ---
 
 # investigating-a-reported-bug
@@ -155,6 +155,48 @@ a finding.
 **Closing:** same report-only pattern as stage 1 - `verify-done`
 returns `suspect-hallucination`, expected, close with `--force`.
 
+## Restarting when new information arrives
+
+New information can surface on the watched thread while stage 2 is running. If
+it arrives while stage 1 is still active, this is simple - just
+`spore task tell <investigator-slug> "<new info>"` and let it fold in, no
+restart needed. This section covers the harder case: stage 1 has already
+closed, so its task file and worktree are gone, and there is nothing left to
+tell.
+
+**Deciding whether to restart:** the coordinator's judgment call, not a fixed
+keyword match. Does the new reply add a new symptom, a correction, a repro
+step, or point at a different area or repo that could change the finding?
+Restart for that. A plain "thanks", "ok", or an emoji reaction is not new
+information - ignore it and let stage 2 finish normally.
+
+**On restart:**
+
+1. Kill the in-flight verifier: `spore task done <verifier-slug> --force`.
+   Discard anything it later `tell`s the coordinator - its citation list was
+   already invalidated the moment the coordinator decided to restart, so its
+   result is never posted and never treated as evidence.
+2. Dispatch a brand-new stage 1 investigator. Its brief combines the ORIGINAL
+   report with the new information into one report, exactly as if this were a
+   fresh investigation. Attach the old investigator's citation list too,
+   labeled plainly "unverified leads from the prior pass - re-check
+   independently, do not trust blindly" - it is a lead, not evidence, because
+   nothing verified it.
+3. Re-run `spore watch slack-set-thread <thread_ts> <new-investigator-slug>`
+   (see stage 2's relink note above) so the thread's active-worker note
+   follows the restart. Repeat this again at the new investigator's handoff to
+   its own verifier, same as any normal stage 1 -> stage 2 transition.
+4. From here the restarted pipeline runs exactly like a fresh investigation -
+   stage 1, then stage 2, then delivery.
+
+**Recursion:** if yet another piece of new information arrives during the
+restarted pass, the same rule applies again. Nothing extra to track - the
+pipeline is stateless about how many times it has restarted.
+
+**Stage 3 note:** if a restart happened, say so in the KB entry - what the new
+information was, and which reply triggered it. That is exactly the kind of
+pattern this KB exists to spot over time.
+
 ## Delivery: the coordinator composes, never a worker
 
 Once the verifier's `tell` lands, the coordinator - not either worker -
@@ -184,6 +226,7 @@ investigator_task: <slug>
 verifier_task: <slug>
 repos: [org/repo, ...]
 date: <YYYY-MM-DD>
+restarted: <omit if no restart happened, otherwise the new info that triggered it>
 ```
 
 Verbose body - do not summarize this away into counts:
@@ -210,6 +253,8 @@ Verbose body - do not summarize this away into counts:
 | Filing a Linear ticket automatically from a finding | Out of scope by design - Slack reply only. A human can still run `linear-bug-report` on top of a finding afterward. |
 | Skipping the KB write because the result was "found nothing relevant" | Document every outcome, not just solved ones - the whole point is to spot patterns in what gets rejected over time. |
 | Writing citation COUNTS instead of the citations themselves in the KB entry | The verbose per-citation detail (pointer, claim, verdict, reasoning) is the analysis material. A count is useless for spotting a pattern later. |
+| Trying to `tell` a closed-out stage 1 investigator about new information | Its task file and worktree are gone once stage 1 closes - there is nothing to tell. Once stage 1 has closed, new information means restarting per "Restarting when new information arrives," not reaching for the old investigator. |
+| Posting or KB-recording the in-flight verifier's result after deciding to restart | Its citations were invalidated the moment the coordinator decided to restart. Discard it - never post it to Slack, never write it into the KB entry as the final verdict. |
 
 ## See also
 
