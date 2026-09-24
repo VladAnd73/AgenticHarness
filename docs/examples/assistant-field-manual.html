@@ -1,0 +1,675 @@
+<title>assistant — field manual</title>
+<style>
+  :root {
+    --ink: #14181a;
+    --paper: #eef1ee;
+    --surface: #e2e7e2;
+    --surface-2: #d5dcd4;
+    --text: #14181a;
+    --text-dim: #4b5450;
+    --border: #c3cbc2;
+    --accent: #1c7a5f;
+    --accent-soft: #d9ece4;
+    --amber: #8a5f18;
+    --amber-soft: #f1e2c1;
+    --red: #8a3323;
+    --red-soft: #f3ddd4;
+    --font-sans: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e8ece7;
+      --paper: #121614;
+      --surface: #1a201d;
+      --surface-2: #232a26;
+      --text: #e8ece7;
+      --text-dim: #9fa9a1;
+      --border: #333b35;
+      --accent: #3fae87;
+      --accent-soft: #1b2e26;
+      --amber: #d9a04a;
+      --amber-soft: #382c15;
+      --red: #d97a5f;
+      --red-soft: #38221c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8ece7;
+    --paper: #121614;
+    --surface: #1a201d;
+    --surface-2: #232a26;
+    --text: #e8ece7;
+    --text-dim: #9fa9a1;
+    --border: #333b35;
+    --accent: #3fae87;
+    --accent-soft: #1b2e26;
+    --amber: #d9a04a;
+    --amber-soft: #382c15;
+    --red: #d97a5f;
+    --red-soft: #38221c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); }
+  a { color: var(--accent); }
+
+  .page { max-width: 920px; margin: 0 auto; padding: 0 28px 120px; }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    padding: 64px 0 40px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    display: block;
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.02;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 1.18rem;
+    color: var(--text-dim);
+    max-width: 62ch;
+    margin: 0 0 28px;
+    text-wrap: pretty;
+  }
+  .chiprow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  .section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+  .section:last-of-type { border-bottom: none; }
+  .section h2 {
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .section .eyebrow { margin-bottom: 10px; }
+  .prose {
+    max-width: 66ch;
+    color: var(--text);
+  }
+  .prose p { margin: 0 0 14px; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose-lede { color: var(--text-dim); font-size: 1.02rem; margin-bottom: 30px; max-width: 66ch; }
+
+  code, .k {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1em 0.4em;
+  }
+
+  .tagrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    padding: 5px 10px;
+    border-radius: 5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  /* ---------- diagrams ---------- */
+  figure.diagram { margin: 34px 0 8px; }
+  .diagram-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 18px 10px;
+  }
+  .diagram-scroll svg { display: block; min-width: 640px; width: 100%; height: auto; color: var(--text); }
+  .diagram-scroll svg .node rect,
+  .diagram-scroll svg .node polygon { fill: var(--paper); stroke: var(--border); stroke-width: 1.6; }
+  .diagram-scroll svg .node.accent rect,
+  .diagram-scroll svg .node.accent polygon { fill: var(--accent-soft); stroke: var(--accent); }
+  .diagram-scroll svg .node.ghost rect { fill: none; stroke: var(--border); stroke-dasharray: 4 4; }
+  .diagram-scroll svg .lbl { font-family: var(--font-sans); font-weight: 700; font-size: 14px; fill: var(--text); }
+  .diagram-scroll svg .sub { font-family: var(--font-mono); font-size: 10.5px; fill: currentColor; opacity: 0.62; }
+  .diagram-scroll svg .cap { font-family: var(--font-mono); font-size: 10.5px; fill: var(--text-dim); }
+  .diagram-scroll svg .flow { stroke: var(--text-dim); stroke-width: 1.6; fill: none; }
+  .diagram-scroll svg .arrowhead { fill: var(--text-dim); }
+  figcaption {
+    font-size: 0.86rem;
+    color: var(--text-dim);
+    margin-top: 12px;
+    max-width: 66ch;
+  }
+
+  /* ---------- procedure ladder ---------- */
+  .ladder { position: relative; margin: 30px 0 0; padding-left: 34px; }
+  .ladder::before {
+    content: "";
+    position: absolute;
+    left: 9px; top: 6px; bottom: 6px;
+    width: 2px;
+    background: var(--border);
+  }
+  .step { position: relative; margin-bottom: 22px; }
+  .step:last-child { margin-bottom: 0; }
+  .step::before {
+    content: "";
+    position: absolute;
+    left: -34px; top: 4px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+  }
+  .step.check::before { border-color: var(--amber); }
+  .step-kind {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .step-title { font-weight: 700; font-size: 1.02rem; margin: 0 0 6px; }
+  .step p { margin: 0 0 8px; color: var(--text-dim); max-width: 62ch; }
+  .branches { display: grid; gap: 8px; margin-top: 10px; }
+  .branch {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .branch .out {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding-top: 1px;
+  }
+  .branch.yes .out { color: var(--accent); }
+  .branch.no .out { color: var(--amber); }
+  .branch p { margin: 0; color: var(--text); font-size: 0.94rem; }
+
+  /* ---------- guardrails ---------- */
+  .guard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 26px;
+  }
+  .guard {
+    background: var(--paper);
+    padding: 18px 20px;
+  }
+  .guard .k {
+    display: inline-block;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .guard p { margin: 0; color: var(--text-dim); font-size: 0.92rem; }
+
+  /* ---------- case file ---------- */
+  .case-head {
+    display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: baseline;
+    margin: 22px 0 30px;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+  .case-head b { color: var(--text); font-family: var(--font-sans); font-size: 1rem; }
+
+  .log { border-left: 2px solid var(--border); padding-left: 26px; margin-left: 4px; }
+  .entry { position: relative; padding-bottom: 26px; }
+  .entry:last-child { padding-bottom: 0; }
+  .entry::before {
+    content: "";
+    position: absolute;
+    left: -32px; top: 3px;
+    width: 9px; height: 9px;
+    border-radius: 2px;
+    background: var(--text-dim);
+    transform: rotate(45deg);
+  }
+  .entry-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  .stagechip {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 5px;
+  }
+  .stagechip.neutral { background: var(--surface); color: var(--text-dim); border: 1px solid var(--border); }
+  .stagechip.pass { background: var(--accent-soft); color: var(--accent); }
+  .stagechip.gap { background: var(--red-soft); color: var(--red); }
+  .stagechip.hold { background: var(--amber-soft); color: var(--amber); }
+  .entry-time { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-dim); }
+  .entry p { margin: 0; max-width: 64ch; }
+  .entry p + p { margin-top: 6px; }
+  .entry blockquote {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    font-style: italic;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    padding-top: 50px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <span class="eyebrow">spore-harnessed coordinator · homekey</span>
+    <h1>assistant</h1>
+    <p class="lede">A standing process that watches one Slack channel, decides whether a message is worth acting on, and — when it looks like a bug — runs it through an investigator and two independent verifiers before anyone hears a word from it.</p>
+    <div class="chiprow">
+      <span class="chip">channel <b>#C0BTMKY5AE4</b></span>
+      <span class="chip">bot <b>@harnessdebugger</b></span>
+      <span class="chip">skills loaded <b>triage · investigate · brief · notify</b></span>
+      <span class="chip">default posture <b>silent</b></span>
+    </div>
+  </header>
+
+  <!-- ================= WHAT I AM ================= -->
+  <section class="section">
+    <span class="eyebrow">01 · substrate</span>
+    <h2>What I run on</h2>
+    <p class="prose-lede">This project has no application code of its own. It's a <code>spore</code>-managed coordinator: a long-lived process that reads a small set of markdown skills, watches an inbox, and mints short-lived workers to do the actual reading and writing.</p>
+
+    <figure class="diagram">
+      <div class="diagram-scroll">
+        <svg viewBox="0 0 1030 260" role="img" aria-label="Slack feeds a watcher, which tells the coordinator; the coordinator keeps state.md and spawns a worker fleet, which reports back to the coordinator via tell.">
+          <defs>
+            <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="arrowhead" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <g class="node">
+            <rect x="30" y="40" width="190" height="80" rx="10" />
+            <text class="lbl" x="125" y="75" text-anchor="middle">Slack</text>
+            <text class="sub" x="125" y="96" text-anchor="middle">#C0BTMKY5AE4</text>
+          </g>
+          <line class="flow" x1="220" y1="80" x2="284" y2="80" marker-end="url(#arrowA)" />
+
+          <g class="node">
+            <rect x="290" y="40" width="190" height="80" rx="10" />
+            <text class="lbl" x="385" y="75" text-anchor="middle">Watcher</text>
+            <text class="sub" x="385" y="96" text-anchor="middle">watch.toml poller</text>
+          </g>
+          <line class="flow" x1="480" y1="80" x2="544" y2="80" marker-end="url(#arrowA)" />
+
+          <g class="node accent">
+            <rect x="550" y="40" width="190" height="80" rx="10" />
+            <text class="lbl" x="645" y="75" text-anchor="middle">Coordinator</text>
+            <text class="sub" x="645" y="96" text-anchor="middle">this project · state.md</text>
+          </g>
+          <line class="flow" x1="740" y1="80" x2="804" y2="80" marker-end="url(#arrowA)" />
+
+          <g class="node">
+            <rect x="810" y="40" width="190" height="80" rx="10" />
+            <text class="lbl" x="905" y="75" text-anchor="middle">Worker fleet</text>
+            <text class="sub" x="905" y="96" text-anchor="middle">tmux + git worktree</text>
+          </g>
+
+          <polyline class="flow" points="905,120 905,192 645,192 645,124" marker-end="url(#arrowA)" />
+          <text class="cap" x="775" y="185" text-anchor="middle">tell: report</text>
+        </svg>
+      </div>
+      <figcaption>Every new thread reaches the coordinator as a <code>tell</code>, never as a live poke — the watcher writes it to disk and the coordinator picks it up, so the loop survives a restart mid-thread.</figcaption>
+    </figure>
+
+    <div class="prose">
+      <p>Two separate channels reach the coordinator, and only one of them carries content. A <b>message inbox</b> holds full <code>tell</code> envelopes — a new thread, a reply, a worker reporting done. A <b>poke channel</b> carries nothing but a wake-up signal; a poke means "go check the message inbox," never the payload itself.</p>
+      <p>State doesn't live in conversation memory. <code>state.md</code> is the only thing guaranteed to survive a restart — and restarts happen often, on a token budget, mid-investigation. Every pipeline below is written so a coordinator with zero memory of this conversation can pick it back up from disk.</p>
+    </div>
+    <div class="tagrow">
+      <span class="tag">triaging-a-watched-slack-thread</span>
+      <span class="tag">investigating-a-reported-bug</span>
+      <span class="tag">writing-a-spore-worker-brief</span>
+      <span class="tag">linear-bug-report</span>
+      <span class="tag">consulting-marketer-product-knowledge</span>
+    </div>
+  </section>
+
+  <!-- ================= JUDGE ================= -->
+  <section class="section">
+    <span class="eyebrow">02 · triage</span>
+    <h2>Judging a new thread</h2>
+    <p class="prose-lede">Not every message gets a worker. The first and only universal rule is to decide before dispatching anything.</p>
+
+    <figure class="diagram">
+      <div class="diagram-scroll">
+        <svg viewBox="0 0 900 400" role="img" aria-label="A new thread tell reaches a judge decision, which splits three ways: noise gets no task, an ordinary request gets a worker brief, a bug report continues into the investigation pipeline.">
+          <defs>
+            <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="arrowhead" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <g class="node">
+            <rect x="355" y="14" width="190" height="50" rx="8" />
+            <text class="lbl" x="450" y="44" text-anchor="middle" style="font-size:13px">new thread / reply</text>
+          </g>
+          <line class="flow" x1="450" y1="64" x2="450" y2="88" marker-end="url(#arrowB)" />
+
+          <g class="node accent">
+            <polygon points="450,88 545,140 450,192 355,140" />
+            <text class="lbl" x="450" y="136" text-anchor="middle" style="font-size:13px">judge</text>
+            <text class="sub" x="450" y="152" text-anchor="middle">it first</text>
+          </g>
+
+          <!-- left: noise -->
+          <polyline class="flow" points="355,140 150,140 150,222" marker-end="url(#arrowB)" />
+          <text class="cap" x="252" y="130" text-anchor="middle">noise / answerable</text>
+          <g class="node">
+            <rect x="55" y="222" width="190" height="56" rx="8" />
+            <text class="lbl" x="150" y="256" text-anchor="middle" style="font-size:13px">no task</text>
+          </g>
+          <line class="flow" x1="150" y1="278" x2="150" y2="322" marker-end="url(#arrowB)" />
+          <g class="node ghost">
+            <rect x="55" y="322" width="190" height="52" rx="8" />
+            <text class="sub" x="150" y="352" text-anchor="middle" style="opacity:1">answer directly, or nothing</text>
+          </g>
+
+          <!-- right: ordinary -->
+          <polyline class="flow" points="545,140 750,140 750,222" marker-end="url(#arrowB)" />
+          <text class="cap" x="650" y="130" text-anchor="middle">ordinary request</text>
+          <g class="node">
+            <rect x="655" y="222" width="190" height="56" rx="8" />
+            <text class="lbl" x="750" y="256" text-anchor="middle" style="font-size:13px">worker brief</text>
+          </g>
+          <line class="flow" x1="750" y1="278" x2="750" y2="322" marker-end="url(#arrowB)" />
+          <g class="node ghost">
+            <rect x="655" y="322" width="190" height="52" rx="8" />
+            <text class="sub" x="750" y="352" text-anchor="middle" style="opacity:1">spore task start → done</text>
+          </g>
+
+          <!-- center: bug -->
+          <line class="flow" x1="450" y1="192" x2="450" y2="222" marker-end="url(#arrowB)" />
+          <text class="cap" x="450" y="212" text-anchor="middle">describes a bug</text>
+          <g class="node accent">
+            <rect x="355" y="222" width="190" height="56" rx="8" />
+            <text class="lbl" x="450" y="256" text-anchor="middle" style="font-size:13px">bug report</text>
+          </g>
+          <line class="flow" x1="450" y1="278" x2="450" y2="322" marker-end="url(#arrowB)" />
+          <g class="node ghost">
+            <rect x="355" y="322" width="190" height="52" rx="8" />
+            <text class="sub" x="450" y="345" text-anchor="middle" style="opacity:1">investigation pipeline</text>
+            <text class="sub" x="450" y="360" text-anchor="middle" style="opacity:1">continues below ↓</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>A question that can be answered directly gets an answer, not a task. A real request gets one ordinary worker. Only a report of something broken, wrong, or behaving unexpectedly earns the heavier pipeline below.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= INVESTIGATE ================= -->
+  <section class="section">
+    <span class="eyebrow">03 · investigation</span>
+    <h2>Investigating a bug</h2>
+    <p class="prose-lede">A bug report gets a checked answer, not a plausible-sounding guess. One investigator drafts a finding; two independent verifiers attack it in parallel, checking two different things neither one can substitute for.</p>
+
+    <figure class="diagram">
+      <div class="diagram-scroll">
+        <svg viewBox="0 0 900 580" role="img" aria-label="Stage 1 investigator drafts a finding, which fans out to Stage 2a, a blind citation verifier, and Stage 2b, an adversarial logic verifier, running in parallel; both converge on a delivery gate that requires both to pass.">
+          <defs>
+            <marker id="arrowC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="arrowhead" d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+
+          <g class="node accent">
+            <rect x="355" y="16" width="190" height="60" rx="8" />
+            <text class="lbl" x="450" y="42" text-anchor="middle" style="font-size:13px">Stage 1</text>
+            <text class="sub" x="450" y="60" text-anchor="middle">investigator, pinned repo @ SHA</text>
+          </g>
+          <line class="flow" x1="450" y1="76" x2="450" y2="106" marker-end="url(#arrowC)" />
+
+          <g class="node ghost">
+            <rect x="330" y="106" width="240" height="52" rx="8" />
+            <text class="sub" x="450" y="128" text-anchor="middle" style="opacity:1">ends in exactly one of:</text>
+            <text class="sub" x="450" y="145" text-anchor="middle" style="opacity:1">solution / leads+stuck / nothing</text>
+          </g>
+
+          <line class="flow" x1="380" y1="158" x2="245" y2="212" marker-end="url(#arrowC)" />
+          <line class="flow" x1="520" y1="158" x2="655" y2="212" marker-end="url(#arrowC)" />
+
+          <g class="node">
+            <rect x="90" y="212" width="310" height="76" rx="8" />
+            <text class="lbl" x="245" y="240" text-anchor="middle" style="font-size:13px">Stage 2a — blind verifier</text>
+            <text class="sub" x="245" y="258" text-anchor="middle">sees only the citation list</text>
+            <text class="sub" x="245" y="274" text-anchor="middle">confirms / rejects each pointer</text>
+          </g>
+          <g class="node">
+            <rect x="500" y="212" width="310" height="76" rx="8" />
+            <text class="lbl" x="655" y="240" text-anchor="middle" style="font-size:13px">Stage 2b — adversarial verifier</text>
+            <text class="sub" x="655" y="258" text-anchor="middle">sees the full narrative</text>
+            <text class="sub" x="655" y="274" text-anchor="middle">attacks the inference, not the facts</text>
+          </g>
+
+          <line class="flow" x1="245" y1="288" x2="410" y2="358" marker-end="url(#arrowC)" />
+          <line class="flow" x1="655" y1="288" x2="490" y2="358" marker-end="url(#arrowC)" />
+
+          <g class="node accent">
+            <rect x="300" y="362" width="300" height="70" rx="8" />
+            <text class="lbl" x="450" y="390" text-anchor="middle" style="font-size:13px">Delivery gate</text>
+            <text class="sub" x="450" y="408" text-anchor="middle">posts only if 2a CONFIRMS + 2b finds no gap</text>
+          </g>
+          <line class="flow" x1="450" y1="432" x2="450" y2="462" marker-end="url(#arrowC)" />
+
+          <g class="node ghost">
+            <rect x="300" y="462" width="300" height="60" rx="8" />
+            <text class="sub" x="450" y="486" text-anchor="middle" style="opacity:1">a fact can stand even when the</text>
+            <text class="sub" x="450" y="502" text-anchor="middle" style="opacity:1">conclusion built on it doesn't survive</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>2a and 2b never see each other's work and don't wait on each other. A citation can be real while the conclusion drawn from it still doesn't follow — that's why one verifier isn't enough.</figcaption>
+    </figure>
+
+    <p class="prose">Everything the investigator finds needs a checkable pointer — <code>file:line</code>, a Sentry link, a Linear ID, an exact log line. No pointer, no claim. Repo access is always coordinator-mediated: a worker never clones on its own authority, so both verifiers check the exact same pinned commit the investigator saw.</p>
+
+    <div class="ladder">
+      <div class="step check">
+        <span class="step-kind">check</span>
+        <p class="step-title">Is the thread still quiet since the conclusion was reached?</p>
+        <p>Fast-moving incidents go stale in minutes — this is re-checked at the moment of posting, not against a snapshot from earlier.</p>
+        <div class="branches">
+          <div class="branch no"><span class="out">new info</span><p>Kill both verifiers, discard their results, and restart Stage 1 with the new information folded in.</p></div>
+          <div class="branch yes"><span class="out">quiet</span><p>Continue.</p></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-kind">action</span>
+        <p class="step-title">Dispatch a full independent verifier</p>
+        <p>One more pass, right before anything is said in public: re-check the entire conclusion, every citation, fresh — not just the specific flags raised earlier.</p>
+      </div>
+
+      <div class="step check">
+        <span class="step-kind">check</span>
+        <p class="step-title">Cleared to post?</p>
+        <p>Gated by whether the owning engineers are already visibly diagnosing live in-thread, and by any standing operator hold on that channel.</p>
+        <div class="branches">
+          <div class="branch no"><span class="out">held</span><p>No Slack post. The KB entry and any Linear filing proceed anyway — they don't depend on whether anything gets said in the thread.</p></div>
+          <div class="branch yes"><span class="out">clear</span><p>The coordinator composes one reply — 3&ndash;5 short sentences, the verified conclusion plus at most one open ask. Caveats and dropped candidates stay out of it.</p></div>
+        </div>
+      </div>
+
+      <div class="step check">
+        <span class="step-kind">check</span>
+        <p class="step-title">Does the verdict name an application bug?</p>
+        <div class="branches">
+          <div class="branch yes"><span class="out">yes</span><p>File a Linear ticket (duplicate search first) and notify the <code>marketer-frontend</code> coordinator to independently reproduce and confirm it — this project only ever reads other repos, it can't reproduce inside them.</p></div>
+          <div class="branch no"><span class="out">no</span><p>Skip both, move straight to the record.</p></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-kind">action</span>
+        <p class="step-title">Write the KB entry</p>
+        <p><code>docs/investigations/&lt;date&gt;-&lt;slug&gt;.md</code> — every outcome, always, including "checked X, Y, Z, found nothing relevant." Every citation and every logical step, kept individually, not summarized into a count.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= GUARDRAILS ================= -->
+  <section class="section">
+    <span class="eyebrow">04 · guardrails</span>
+    <h2>Rules that override the default</h2>
+    <p class="prose-lede">Six standing rules, each written after watching the process get something wrong once. They bind every stage above, not just the ones that read them.</p>
+    <div class="guard-grid">
+      <div class="guard">
+        <span class="k">bot-mention-scope</span>
+        <p>Only a literal <code>@harnessdebugger</code> tag counts as addressed to this bot. "The harness" said in passing, by role or nickname, is out of scope by definition.</p>
+      </div>
+      <div class="guard">
+        <span class="k">silence-during-live-debugging</span>
+        <p>Once the owning engineers are visibly diagnosing live in-thread, default to silence — unless asked directly, or holding a genuinely new, independently-verified fact.</p>
+      </div>
+      <div class="guard">
+        <span class="k">verify-the-literal-symptom</span>
+        <p>An exculpatory verdict needs a citation against the report's own literal claim — not a status flag or completion timestamp that merely precedes it.</p>
+      </div>
+      <div class="guard">
+        <span class="k">deploy-status</span>
+        <p>"Merged to the default branch" is not "deployed to production" on these repos — check the branch each repo's production actually tracks, per repo.</p>
+      </div>
+      <div class="guard">
+        <span class="k">live-incident-verification-gate</span>
+        <p>Stay fast — single investigator, no second stage — while a team is actively debugging live. Never skip the full independent re-check gated right before a post.</p>
+      </div>
+      <div class="guard">
+        <span class="k">short-slack-replies</span>
+        <p>Post like a dev answering in-thread: 3&ndash;5 sentences, one conclusion, at most one open ask. The full uncertainty picture lives in the KB entry, not the channel.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CASE FILE ================= -->
+  <section class="section">
+    <span class="eyebrow">05 · case file</span>
+    <h2>HK-618 — an order that wouldn't sync</h2>
+    <div class="case-head">
+      <span><b>Thread</b> "Error when ordering — EM1"</span>
+      <span><b>Reporter</b> Anette Johansen</span>
+      <span><b>Date</b> 2026-09-22</span>
+    </div>
+
+    <div class="log">
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip neutral">STAGE 1</span></div>
+        <p>The investigator traced it to <code>CrmConfiguration.for_companies</code> — missing a <code>.distinct</code> — which makes <code>crm_configurations.one?</code> always false for the EM1 Midt-Norge Webtop company family (27&ndash;28 companies sharing one config row). The self-heal product-creation fetch never fires as a result. The specific estate in the report, <code>16260182</code>, was confirmed absent from both the <code>products</code> and <code>existing_homes</code> tables — zero rows, either side.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip pass">2A · CONFIRMED</span></div>
+        <p>The citation re-opened clean against the same pinned commit.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip gap">2B · GAP FOUND</span></div>
+        <p>The bug is proven company-family-wide, but nothing tied it to confirming <em>this reporter's order</em> actually routed through one of the affected companies. The same DB-absence check had also been asked to stand in for a second, separate claim — that the error string itself persists — without ever tracing the code path that renders it.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip neutral">GATE</span><span class="entry-time">downgraded</span></div>
+        <p>"possible solution" → <b>leads-plus-stuck</b>. The mechanism holds; the link to this specific order doesn't, yet.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip hold">HOLD</span></div>
+        <p>Not posted — a standing operator instruction to stay off that channel was already in force.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip neutral">LIVE THREAD</span><span class="entry-time">~6 hours</span></div>
+        <p>The owning engineers diagnosed it live, in-thread, through three different theories in sequence — a CRM-side marketability flag, a scheduler timing-window miss, a guard clause — before one of them traced it back to the exact same missing-<code>.distinct</code> query, unprompted:</p>
+        <blockquote>"after another round seems the root cause why product wasn't created is the issue described in the ticket 😄 … creating a fix now"</blockquote>
+        <p>No @-tag, ever. The default-to-silence rule held the whole way through — this bot never needed to speak, because the team got there on its own.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip pass">LINEAR</span></div>
+        <p><b>HK-618</b> filed directly once the verdict named a confirmed mechanism — duplicate search run first, two related-but-distinct tickets noted, not blocked on.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip neutral">NOTIFY</span></div>
+        <p>The <code>marketer-frontend</code> coordinator was asked to independently reproduce it — this project can only read that repo, never confirm inside it.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip neutral">KB</span></div>
+        <p><code>docs/investigations/2026-09-22-order-error-em1-sync.md</code> — every citation, every 2b attack point, the exact reply that would have posted if the hold had lifted.</p>
+      </div>
+
+      <div class="entry">
+        <div class="entry-head"><span class="stagechip pass">OUTCOME</span></div>
+        <p>The owning engineer opened a fix PR the same day. The finding was right; the silence rule meant it didn't need to be said to matter.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    assistant · spore-harnessed coordinator · homekey — describes the process as run through Pipeline 8 (2026-09-22)
+  </footer>
+
+</div>
