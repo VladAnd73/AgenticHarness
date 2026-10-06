@@ -32,6 +32,12 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the spore binary")
 	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not on PATH")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH")
+	}
 
 	home := t.TempDir()
 	root := filepath.Join(home, "proj")
