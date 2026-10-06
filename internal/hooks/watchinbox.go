@@ -137,15 +137,37 @@ func drainAll(inboxDirs []string, stdout io.Writer) (int, error) {
 }
 
 // drainInbox lists *.json at the top level of inboxDir, atomically
-// moves each to inboxDir/read/, and prints "[ts] source: body" for
-// every file this caller claimed. Returns the claim count.
+// moves each into the pending staging dir, records the batch, and
+// prints "[ts] source: body" for every file this caller claimed.
+// Returns the claim count.
 func drainInbox(inboxDir string, stdout io.Writer) (int, error) {
+	msgs, err := ClaimPending(inboxDir, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range msgs {
+		fmt.Fprintf(stdout, "[%s] %s: %s\n", m.TS, m.Source, m.Body)
+	}
+	return len(msgs), nil
+}
+
+// ClaimPending moves every *.json at the inbox top level into the
+// pending staging dir and writes the un-acknowledged record for the
+// batch. The rename is what makes a claim exclusive: when several
+// watchers wake on one arrival they all run this, and only the one
+// that wins the rename gets a non-empty result. Returns the claimed
+// messages, empty when another watcher won.
+//
+// Claiming is deliberately separate from printing. The record lands
+// before anything is written to stdout, so a batch stays recoverable
+// even if the process dies between the two.
+func ClaimPending(inboxDir string, now time.Time) ([]PendingMessage, error) {
 	entries, err := os.ReadDir(inboxDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return nil, nil
 		}
-		return 0, err
+		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
@@ -159,42 +181,32 @@ func drainInbox(inboxDir string, stdout io.Writer) (int, error) {
 		names = append(names, e.Name())
 	}
 	if len(names) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	sort.Strings(names)
 
-	// Claim into pendingSubdir, not read/. The rename is what makes
-	// the claim exclusive when several watchers wake on one arrival;
-	// read/ is reserved for deliveries the agent has acknowledged.
 	pendingDir := filepath.Join(inboxDir, pendingSubdir)
 	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
-		return 0, err
+		return nil, err
 	}
 	var claimed []string
 	for _, n := range names {
-		src := filepath.Join(inboxDir, n)
-		dst := filepath.Join(pendingDir, n)
-		if err := os.Rename(src, dst); err == nil {
+		if err := os.Rename(filepath.Join(inboxDir, n), filepath.Join(pendingDir, n)); err == nil {
 			claimed = append(claimed, n)
 		}
 	}
 	if len(claimed) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	msgs := make([]PendingMessage, 0, len(claimed))
 	for _, n := range claimed {
 		ts, source, body := readTellFile(filepath.Join(pendingDir, n))
 		msgs = append(msgs, PendingMessage{Name: n, TS: ts, Source: source, Body: body})
 	}
-	// Record before printing: a crash between the claim and the print
-	// must still leave the batch recoverable.
-	if err := recordPendingAck(inboxDir, msgs, time.Now()); err != nil {
-		return 0, err
+	if err := recordPendingAck(inboxDir, msgs, now); err != nil {
+		return nil, err
 	}
-	for _, m := range msgs {
-		fmt.Fprintf(stdout, "[%s] %s: %s\n", m.TS, m.Source, m.Body)
-	}
-	return len(claimed), nil
+	return msgs, nil
 }
 
 func readTellFile(path string) (ts, source, body string) {

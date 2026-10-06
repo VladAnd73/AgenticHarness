@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/versality/spore/internal/fleet"
 	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/task"
 )
@@ -166,6 +167,12 @@ func runHooksSettings() int {
 }
 
 func runHooksWatchInbox(args []string) int {
+	observe, wakeSession, rest := parseObserveFlags(args)
+	if observe {
+		return runHooksObserveInbox(wakeSession)
+	}
+	args = rest
+
 	var err error
 	switch len(args) {
 	case 0:
@@ -189,6 +196,47 @@ func runHooksWatchInbox(args []string) int {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "spore hooks watch-inbox:", err)
+		return 1
+	}
+	return 0
+}
+
+// parseObserveFlags pulls --observe and --wake-session out of the
+// watch-inbox argument list, returning the remaining positionals.
+func parseObserveFlags(args []string) (observe bool, wakeSession string, rest []string) {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--observe":
+			observe = true
+		case "--wake-session":
+			if i+1 < len(args) {
+				i++
+				wakeSession = args[i]
+			}
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	return observe, wakeSession, rest
+}
+
+// runHooksObserveInbox arms the inbox from outside the agent. It claims
+// nothing; on a new arrival it nudges the agent's pane so the Stop-hook
+// watcher that does the real draining gets a turn to run in. Spawned by
+// the fleet reconciler's lost-wakeup watchdog, never by a hook.
+func runHooksObserveInbox(wakeSession string) int {
+	dirs := watchInboxDirsFromEnv()
+	if len(dirs) == 0 {
+		return 0
+	}
+	err := hooks.ObserveInbox(dirs, func() error {
+		if wakeSession == "" {
+			return nil
+		}
+		return fleet.NudgeSession(wakeSession)
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "spore hooks watch-inbox --observe:", err)
 		return 1
 	}
 	return 0
