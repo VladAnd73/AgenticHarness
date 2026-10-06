@@ -81,6 +81,12 @@ func watchInboxAtDirs(inboxDirs []string, stdout, stderr io.Writer, opts watchOp
 		if err := ensureInbox(dir); err != nil {
 			return err
 		}
+		// This process starting IS the acknowledgement. The Stop hook
+		// only runs when a turn ends, so a fresh watcher proves the
+		// agent woke for whatever the previous one printed.
+		if err := AckDelivered(dir); err != nil {
+			return err
+		}
 	}
 
 	if n, err := drainAll(inboxDirs, stdout); err != nil {
@@ -157,21 +163,36 @@ func drainInbox(inboxDir string, stdout io.Writer) (int, error) {
 	}
 	sort.Strings(names)
 
-	readDir := filepath.Join(inboxDir, "read")
+	// Claim into pendingSubdir, not read/. The rename is what makes
+	// the claim exclusive when several watchers wake on one arrival;
+	// read/ is reserved for deliveries the agent has acknowledged.
+	pendingDir := filepath.Join(inboxDir, pendingSubdir)
+	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
+		return 0, err
+	}
 	var claimed []string
 	for _, n := range names {
 		src := filepath.Join(inboxDir, n)
-		dst := filepath.Join(readDir, n)
+		dst := filepath.Join(pendingDir, n)
 		if err := os.Rename(src, dst); err == nil {
-			claimed = append(claimed, dst)
+			claimed = append(claimed, n)
 		}
 	}
 	if len(claimed) == 0 {
 		return 0, nil
 	}
-	for _, f := range claimed {
-		ts, source, body := readTellFile(f)
-		fmt.Fprintf(stdout, "[%s] %s: %s\n", ts, source, body)
+	msgs := make([]PendingMessage, 0, len(claimed))
+	for _, n := range claimed {
+		ts, source, body := readTellFile(filepath.Join(pendingDir, n))
+		msgs = append(msgs, PendingMessage{Name: n, TS: ts, Source: source, Body: body})
+	}
+	// Record before printing: a crash between the claim and the print
+	// must still leave the batch recoverable.
+	if err := recordPendingAck(inboxDir, msgs, time.Now()); err != nil {
+		return 0, err
+	}
+	for _, m := range msgs {
+		fmt.Fprintf(stdout, "[%s] %s: %s\n", m.TS, m.Source, m.Body)
 	}
 	return len(claimed), nil
 }
@@ -215,7 +236,7 @@ func wtStateDir() string {
 }
 
 func ensureInbox(inbox string) error {
-	for _, sub := range []string{"", ".tmp", "read"} {
+	for _, sub := range []string{"", ".tmp", "read", pendingSubdir} {
 		if err := os.MkdirAll(filepath.Join(inbox, sub), 0o755); err != nil {
 			return err
 		}

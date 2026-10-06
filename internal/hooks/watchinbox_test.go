@@ -83,10 +83,10 @@ func TestWatchInbox_DrainPreCheckWakes(t *testing.T) {
 		t.Errorf("missing second line: %q", out)
 	}
 	if _, err := os.Stat(filepath.Join(inbox, "100-1-1.json")); !os.IsNotExist(err) {
-		t.Errorf("file should have moved to read/")
+		t.Errorf("file should have been claimed out of the inbox top level")
 	}
-	if _, err := os.Stat(filepath.Join(inbox, "read", "100-1-1.json")); err != nil {
-		t.Errorf("expected file in read/: %v", err)
+	if _, err := os.Stat(filepath.Join(inbox, pendingSubdir, "100-1-1.json")); err != nil {
+		t.Errorf("expected file staged in %s/: %v", pendingSubdir, err)
 	}
 }
 
@@ -308,8 +308,8 @@ func TestWatchInboxAtDirs_MessageInboxOnlyWakes(t *testing.T) {
 	if !strings.Contains(stdout.String(), "[t] worker: mail") {
 		t.Errorf("missing drained line: %q", stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(msg, "read", "100-1-1.json")); err != nil {
-		t.Errorf("message-inbox file should have moved to its own read/: %v", err)
+	if _, err := os.Stat(filepath.Join(msg, pendingSubdir, "100-1-1.json")); err != nil {
+		t.Errorf("message-inbox file should be staged in its own %s/: %v", pendingSubdir, err)
 	}
 }
 
@@ -340,8 +340,8 @@ func TestWatchInboxAtDirs_PokeChannelOnlyWakes(t *testing.T) {
 	if !strings.Contains(stdout.String(), "[t] notification: poke") {
 		t.Errorf("missing poke line: %q", stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(poke, "read", "1.json")); err != nil {
-		t.Errorf("poke file should have moved to poke/read/: %v", err)
+	if _, err := os.Stat(filepath.Join(poke, pendingSubdir, "1.json")); err != nil {
+		t.Errorf("poke file should be staged in poke/%s/: %v", pendingSubdir, err)
 	}
 }
 
@@ -376,11 +376,11 @@ func TestWatchInboxAtDirs_DrainsAllDirsOnPreCheck(t *testing.T) {
 	if !strings.Contains(out, "[b] worker: mail") {
 		t.Errorf("missing mail line: %q", out)
 	}
-	if _, err := os.Stat(filepath.Join(poke, "read", "1.json")); err != nil {
-		t.Errorf("poke file not in poke/read/: %v", err)
+	if _, err := os.Stat(filepath.Join(poke, pendingSubdir, "1.json")); err != nil {
+		t.Errorf("poke file not staged in poke/%s/: %v", pendingSubdir, err)
 	}
-	if _, err := os.Stat(filepath.Join(msg, "read", "2.json")); err != nil {
-		t.Errorf("mail file not in msg/read/: %v", err)
+	if _, err := os.Stat(filepath.Join(msg, pendingSubdir, "2.json")); err != nil {
+		t.Errorf("mail file not staged in msg/%s/: %v", pendingSubdir, err)
 	}
 }
 
