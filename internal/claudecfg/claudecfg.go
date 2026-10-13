@@ -24,7 +24,10 @@
 //
 // A project that sets nothing, in a process that exports nothing,
 // resolves ~/.claude -- byte for byte what every call site returned
-// before this package existed.
+// before this package existed. That holds whatever state the project's
+// spore.toml is in: a step of the order that cannot be evaluated is
+// skipped, not fatal. Only ConfigDirSetting reports such a failure to
+// its caller, for the callers that want it loud.
 package claudecfg
 
 import (
@@ -44,13 +47,24 @@ const Env = "CLAUDE_CONFIG_DIR"
 // projectRoot skips the per-project lookup and resolves from the
 // environment alone, for the handful of callers that genuinely have no
 // project in hand.
+//
+// A per-project lookup that fails falls through to the rest of the
+// order rather than failing the call. The reason is the requirement
+// this package was written under: a project with no [claude] section
+// must resolve exactly what it resolved before the package existed.
+// Every read site this replaced ignored spore.toml entirely, so an
+// unreadable or unparseable one could not fail them; propagating the
+// error would hand them a new way to break over a file they never
+// cared about. It is reported on stderr instead, because a fallback
+// nobody can see masks a typo forever.
 func Dir(projectRoot string) (string, error) {
 	if projectRoot != "" {
 		set, err := ConfigDirSetting(projectRoot)
-		if err != nil {
-			return "", err
-		}
-		if set != "" {
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "%v: ignoring the project setting, "+
+				"resolving the config directory from the environment instead\n", err)
+		case set != "":
 			return set, nil
 		}
 	}
