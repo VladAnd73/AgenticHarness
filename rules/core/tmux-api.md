@@ -16,3 +16,12 @@ tmux capture-pane -t <name> -p   # read recent output
 ```
 
 **Inspect** with `tmux list-windows`. Pick short, descriptive names so the operator can find them (`Ctrl-b w`). Kill with `tmux kill-window -t <name>` when truly done; otherwise leave it for the operator.
+
+**Never run a bare `tmux kill-server`.** With neither `-L` nor `-S`, tmux takes the socket out of `$TMUX` and ignores `TMUX_TMPDIR`, so a teardown you meant for a throwaway test server destroys the operator's real one and every project session on it. A test fixture or a spike names its socket on both halves:
+
+```
+tmux -L <label> new-session -d -s probe "<cmd>"
+tmux -L <label> kill-server
+```
+
+Lost panes are not the worst of it. The next `tmux` command starts a fresh server that freezes the calling shell's environment as the one every later pane inherits. Kill the server from a sandboxed shell and every agent spawned afterwards gets that sandbox `HOME`, sees an empty config directory, and stops where a human has to log it back in.
