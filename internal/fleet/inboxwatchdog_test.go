@@ -27,6 +27,8 @@ type watchdogHarness struct {
 	draft     bool
 	draftOK   bool
 	claimedAt time.Time
+	after     time.Duration
+	claimer   bool
 }
 
 func newWatchdogHarness(t *testing.T) *watchdogHarness {
@@ -39,11 +41,17 @@ func newWatchdogHarness(t *testing.T) *watchdogHarness {
 		t.Fatal(err)
 	}
 
-	h := &watchdogHarness{root: root, inbox: inbox, draftOK: true}
+	h := &watchdogHarness{
+		root:    root,
+		inbox:   inbox,
+		draftOK: true,
+		after:   inboxWatchdogGrace + time.Minute,
+	}
 	h.deps = inboxWatchdogDeps{
-		now:          func() time.Time { return h.claimedAt.Add(10 * time.Minute) },
+		now:          func() time.Time { return h.claimedAt.Add(h.after) },
 		inboxDirs:    func(string) ([]string, error) { return []string{h.inbox}, nil },
 		lastActivity: func(string) (time.Time, bool) { return h.activity, h.activeOK },
+		claimerAlive: func(int) bool { return h.claimer },
 		observerAlive: func(string) bool {
 			return h.observer
 		},
@@ -120,16 +128,16 @@ func TestInboxWatchdog_RequeuesAndRearmsWithoutNudging(t *testing.T) {
 // Scenario 5: the condition persists for N consecutive ticks. The Nth
 // tick issues exactly one nudge and logs it; a further tick must not
 // nudge again.
+//
+// Nothing re-claims the envelope between ticks, because in a lost
+// wakeup nothing does. The streak has to survive on the evidence the
+// watchdog itself leaves behind.
 func TestInboxWatchdog_EscalatesOnceAtNthTick(t *testing.T) {
 	h := newWatchdogHarness(t)
 	const n = 3
+	h.claim(t, "100-1-1.json", "new thread")
 
 	for tick := 1; tick <= n+2; tick++ {
-		// Each tick re-finds the condition: the envelope was requeued
-		// and nothing drained it, so the next drain re-claims it.
-		if _, ok, _ := hooks.ReadPendingAck(h.inbox); !ok {
-			h.claim(t, "100-1-1.json", "new thread")
-		}
 		res, err := runInboxWatchdog(h.cfg(), n, h.deps)
 		if err != nil {
 			t.Fatalf("tick %d: %v", tick, err)
@@ -155,6 +163,11 @@ func TestInboxWatchdog_EscalatesOnceAtNthTick(t *testing.T) {
 	}
 	if !logged {
 		t.Errorf("escalation not logged: %v", h.logs)
+	}
+	// The envelope stayed deliverable the whole time: the nudge sends
+	// the agent to its inbox, so the inbox has to still hold it.
+	if _, err := os.Stat(filepath.Join(h.inbox, "100-1-1.json")); err != nil {
+		t.Errorf("envelope is not in the inbox the nudge points at: %v", err)
 	}
 }
 
@@ -204,11 +217,9 @@ func TestInboxWatchdog_FailsClosedWithoutLivenessSignal(t *testing.T) {
 func TestInboxWatchdog_SuppressesNudgeWhenPaneHasDraft(t *testing.T) {
 	h := newWatchdogHarness(t)
 	h.draft = true
+	h.claim(t, "100-1-1.json", "new thread")
 
 	for tick := 1; tick <= 3; tick++ {
-		if _, ok, _ := hooks.ReadPendingAck(h.inbox); !ok {
-			h.claim(t, "100-1-1.json", "new thread")
-		}
 		if _, err := runInboxWatchdog(h.cfg(), 3, h.deps); err != nil {
 			t.Fatalf("tick %d: %v", tick, err)
 		}
@@ -232,11 +243,9 @@ func TestInboxWatchdog_SuppressesNudgeWhenPaneHasDraft(t *testing.T) {
 func TestInboxWatchdog_SuppressesNudgeWhenPaneUnreadable(t *testing.T) {
 	h := newWatchdogHarness(t)
 	h.draftOK = false
+	h.claim(t, "100-1-1.json", "new thread")
 
 	for tick := 1; tick <= 3; tick++ {
-		if _, ok, _ := hooks.ReadPendingAck(h.inbox); !ok {
-			h.claim(t, "100-1-1.json", "new thread")
-		}
 		if _, err := runInboxWatchdog(h.cfg(), 3, h.deps); err != nil {
 			t.Fatalf("tick %d: %v", tick, err)
 		}
@@ -250,15 +259,25 @@ func TestInboxWatchdog_SuppressesNudgeWhenPaneUnreadable(t *testing.T) {
 // means N CONSECUTIVE ticks.
 func TestInboxWatchdog_StreakResetsWhenDeliveryAcknowledged(t *testing.T) {
 	h := newWatchdogHarness(t)
+	h.claim(t, "100-1-1.json", "new thread")
 	for tick := 1; tick <= 2; tick++ {
-		h.claim(t, "100-1-1.json", "new thread")
 		if _, err := runInboxWatchdog(h.cfg(), 3, h.deps); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// A healthy tick: nothing pending.
-	if _, err := runInboxWatchdog(h.cfg(), 3, h.deps); err != nil {
+	// The agent finally woke: its next watcher claimed the requeued
+	// envelope and the turn after that acknowledged the delivery.
+	if _, err := hooks.ClaimPending(h.inbox, time.Now()); err != nil {
 		t.Fatal(err)
+	}
+	if err := hooks.AckDelivered(h.inbox); err != nil {
+		t.Fatal(err)
+	}
+	// A healthy tick: nothing pending, nothing outstanding.
+	if res, err := runInboxWatchdog(h.cfg(), 3, h.deps); err != nil {
+		t.Fatal(err)
+	} else if res.Skipped == "" {
+		t.Fatalf("watchdog acted on a healthy inbox: %+v", res)
 	}
 	h.claim(t, "200-1-1.json", "later")
 	res, err := runInboxWatchdog(h.cfg(), 3, h.deps)

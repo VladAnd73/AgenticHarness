@@ -22,10 +22,21 @@ import (
 const DefaultInboxWatchdogEscalateAfter = 3
 
 // inboxWatchdogGrace is the minimum age of an un-acknowledged record
-// before the watchdog will consider acting. It covers the window
-// between a watcher claiming an envelope and the agent writing the
-// first line of the turn that claim triggered.
-const inboxWatchdogGrace = 30 * time.Second
+// before the watchdog will consider acting.
+//
+// It has to clear the longest an agent can go without writing anything
+// to its transcript while working normally. Claude Code writes one
+// line per message, so a tool call writes nothing for its whole
+// duration: measured across 3724 real assistant-to-tool-result
+// intervals on this host, the median was 0.13s and the p99 26.2s, but
+// the longest was 120.2s and this harness permits Bash timeouts of
+// 600s. A grace below that ceiling eventually reads a working agent as
+// a dead one, and the watchdog types into its pane.
+//
+// The cost of the wide window is that a genuinely lost delivery waits
+// longer. Against the 17.7 hours the 2026-10-06 incident cost, fifteen
+// minutes plus the escalation streak is cheap.
+const inboxWatchdogGrace = 15 * time.Minute
 
 const inboxWatchdogStateName = "inbox-watchdog.json"
 
@@ -45,11 +56,23 @@ type InboxWatchdogResult struct {
 }
 
 // inboxWatchdogState is the per-project streak ledger. Strikes counts
-// consecutive ticks that found a lost delivery; Escalated latches the
-// one-shot nudge so a persistent fault does not type repeatedly.
+// consecutive ticks that found the same lost delivery; Escalated
+// latches the one-shot nudge so a persistent fault does not type
+// repeatedly.
+//
+// Lost names the envelopes the watchdog put back, and it is what the
+// streak hangs on. An earlier version counted strikes while an
+// un-acknowledged record was present, which could never reach two: the
+// requeue deletes the record, and during a lost wakeup nothing
+// re-claims to write a new one. The envelope lying at the inbox top
+// level across ticks is the durable evidence that the delivery still
+// has not landed.
 type inboxWatchdogState struct {
-	Strikes   int  `json:"strikes"`
-	Escalated bool `json:"escalated"`
+	Strikes   int       `json:"strikes"`
+	Escalated bool      `json:"escalated"`
+	Lost      []string  `json:"lost,omitempty"`
+	LostSince time.Time `json:"lost_since,omitempty"`
+	MuteSaid  bool      `json:"mute_said,omitempty"`
 }
 
 // inboxWatchdogDeps is every edge the watchdog touches outside its own
@@ -58,6 +81,7 @@ type inboxWatchdogDeps struct {
 	now           func() time.Time
 	inboxDirs     func(projectRoot string) ([]string, error)
 	lastActivity  func(projectRoot string) (time.Time, bool)
+	claimerAlive  func(pid int) bool
 	observerAlive func(projectRoot string) bool
 	spawnObserver func(projectRoot string, dirs []string) error
 	paneDraft     func(session string) (hasDraft bool, known bool)
@@ -70,10 +94,11 @@ func defaultInboxWatchdogDeps() inboxWatchdogDeps {
 		now:           time.Now,
 		inboxDirs:     coordinatorInboxDirs,
 		lastActivity:  agentTranscriptActivity,
+		claimerAlive:  watcherProcessAlive,
 		observerAlive: observerAlive,
 		spawnObserver: spawnObserver,
 		paneDraft:     paneHasDraft,
-		sendKeys:      tmuxSendKeys,
+		sendKeys:      tmuxNudge,
 		logf:          func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) },
 	}
 }
@@ -101,40 +126,79 @@ func runInboxWatchdog(cfg Config, escalateAfter int, deps inboxWatchdogDeps) (In
 		return InboxWatchdogResult{Skipped: "inbox dirs unresolved"}, nil
 	}
 
-	pending, claimedAt := oldestPending(dirs)
-	if len(pending) == 0 {
+	st, err := readInboxWatchdogState(cfg.ProjectRoot)
+	if err != nil {
+		return InboxWatchdogResult{}, err
+	}
+	outstanding := survivingPaths(st.Lost)
+	if len(st.Lost) > 0 && len(outstanding) == 0 {
+		// Every envelope the watchdog put back has been taken: the
+		// agent woke, so this episode is over and the next one starts
+		// its streak from zero.
+		st = inboxWatchdogState{}
+	}
+	st.Lost = outstanding
+
+	pending, claimedAt, claimPID := oldestPending(dirs)
+	if len(pending) == 0 && len(st.Lost) == 0 {
 		return InboxWatchdogResult{Skipped: "no outstanding delivery"}, clearInboxWatchdogState(cfg.ProjectRoot)
 	}
 
+	// The reference time is when the delivery that is still outstanding
+	// was first claimed, not when this tick found it.
+	since := claimedAt
+	if since.IsZero() || (!st.LostSince.IsZero() && st.LostSince.Before(since)) {
+		since = st.LostSince
+	}
+
+	if claimPID > 0 && deps.claimerAlive(claimPID) {
+		return InboxWatchdogResult{Skipped: "claiming watcher still running"}, nil
+	}
+
 	now := deps.now()
-	if now.Sub(claimedAt) < inboxWatchdogGrace {
+	if now.Sub(since) < inboxWatchdogGrace {
 		return InboxWatchdogResult{Skipped: "within grace window"}, nil
 	}
 
 	activity, ok := deps.lastActivity(cfg.ProjectRoot)
 	if !ok {
-		return InboxWatchdogResult{Skipped: "no liveness signal"}, nil
+		res := InboxWatchdogResult{Skipped: "no liveness signal"}
+		if st.MuteSaid {
+			return res, nil
+		}
+		deps.logf("inbox-watchdog: %s has an outstanding delivery but no liveness signal for its agent, "+
+			"so the watchdog stands down and will not recover it", cfg.ProjectRoot)
+		st.MuteSaid = true
+		return res, writeInboxWatchdogState(cfg.ProjectRoot, st)
 	}
-	if activity.After(claimedAt) {
+	if activity.After(since) {
 		return InboxWatchdogResult{Skipped: "session active since the claim"}, nil
 	}
 
-	st, err := readInboxWatchdogState(cfg.ProjectRoot)
-	if err != nil {
-		return InboxWatchdogResult{}, err
-	}
+	st.MuteSaid = false
 	st.Strikes++
+	if st.LostSince.IsZero() {
+		st.LostSince = since
+	}
 	res := InboxWatchdogResult{Strikes: st.Strikes}
 
 	for _, dir := range pending {
-		n, err := hooks.RequeuePending(dir)
+		names, err := hooks.RequeuePending(dir)
+		for _, n := range names {
+			st.Lost = append(st.Lost, filepath.Join(dir, n))
+		}
+		res.Requeued += len(names)
 		if err != nil {
 			return res, fmt.Errorf("requeue %s: %w", dir, err)
 		}
-		res.Requeued += n
 	}
-	deps.logf("inbox-watchdog: requeued %d envelope(s) for %s (strike %d/%d)",
-		res.Requeued, cfg.ProjectRoot, st.Strikes, escalateAfter)
+	if res.Requeued > 0 {
+		deps.logf("inbox-watchdog: requeued %d envelope(s) for %s (strike %d/%d)",
+			res.Requeued, cfg.ProjectRoot, st.Strikes, escalateAfter)
+	} else {
+		deps.logf("inbox-watchdog: %d envelope(s) still undelivered for %s (strike %d/%d)",
+			len(st.Lost), cfg.ProjectRoot, st.Strikes, escalateAfter)
+	}
 
 	if !deps.observerAlive(cfg.ProjectRoot) {
 		if err := deps.spawnObserver(cfg.ProjectRoot, dirs); err != nil {
@@ -167,12 +231,14 @@ func runInboxWatchdog(cfg Config, escalateAfter int, deps inboxWatchdogDeps) (In
 	return res, writeInboxWatchdogState(cfg.ProjectRoot, st)
 }
 
-// oldestPending returns the dirs holding an un-acknowledged record and
-// the earliest claim time among them: the delivery that has been
-// waiting longest is the one the grace and liveness checks apply to.
-func oldestPending(dirs []string) ([]string, time.Time) {
+// oldestPending returns the dirs holding an un-acknowledged record,
+// the earliest claim time among them, and the pid that made that
+// claim. The delivery that has been waiting longest is the one the
+// grace and liveness checks apply to.
+func oldestPending(dirs []string) ([]string, time.Time, int) {
 	var out []string
 	var oldest time.Time
+	pid := 0
 	for _, dir := range dirs {
 		rec, ok, err := hooks.ReadPendingAck(dir)
 		if err != nil || !ok || len(rec.Messages) == 0 {
@@ -181,9 +247,23 @@ func oldestPending(dirs []string) ([]string, time.Time) {
 		out = append(out, dir)
 		if oldest.IsZero() || rec.ClaimedAt.Before(oldest) {
 			oldest = rec.ClaimedAt
+			pid = rec.PID
 		}
 	}
-	return out, oldest
+	return out, oldest, pid
+}
+
+// survivingPaths keeps the entries that are still on disk. A requeued
+// envelope that has gone has been taken by a drain, which is the
+// delivery finally happening.
+func survivingPaths(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		if _, err := os.Lstat(p); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // coordinatorInboxDirs returns the dirs a coordinator's Stop-hook
@@ -215,11 +295,11 @@ func coordinatorInboxDirs(projectRoot string) ([]string, error) {
 // the case for any agent that does not keep one. The watchdog treats
 // that as "cannot tell" and stands down.
 func agentTranscriptActivity(projectRoot string) (time.Time, bool) {
-	home, err := os.UserHomeDir()
+	base, err := claudeConfigDir()
 	if err != nil {
 		return time.Time{}, false
 	}
-	dir := filepath.Join(home, ".claude", "projects", strings.ReplaceAll(projectRoot, "/", "-"))
+	dir := filepath.Join(base, "projects", claudeProjectDir(projectRoot))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return time.Time{}, false
@@ -241,6 +321,41 @@ func agentTranscriptActivity(projectRoot string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return newest, true
+}
+
+// claudeConfigDir is where Claude Code keeps its state. A project can
+// be pointed at its own by setting CLAUDE_CONFIG_DIR, and a watchdog
+// that assumed ~/.claude would find no transcripts for that project
+// and stand down forever.
+func claudeConfigDir() (string, error) {
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
+		return v, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+// claudeProjectDir encodes a project root the way Claude Code names
+// its transcript directory under <config>/projects/: every character
+// that is not a letter, digit or hyphen becomes a hyphen. Verified
+// against the directory names on this host and the cwd recorded inside
+// their own transcripts, including dotted roots (every .worktrees
+// checkout) and underscored ones.
+func claudeProjectDir(projectRoot string) string {
+	var b strings.Builder
+	b.Grow(len(projectRoot))
+	for _, r := range projectRoot {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func inboxWatchdogStatePath(projectRoot string) (string, error) {

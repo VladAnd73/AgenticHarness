@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// ObserveInbox watches inboxDirs for a NEW envelope without claiming
-// anything, then calls onNew once and returns.
+// ObserveInbox watches inboxDirs for NEW envelopes without claiming
+// anything, calling onNew for each arrival nothing else picked up. It
+// keeps watching until the watch times out.
 //
 // It exists because of how the Stop-hook watchers die. One arrival
 // wakes every blocked watcher, exactly one wins the rename, and all the
@@ -22,6 +23,12 @@ import (
 // agent's own watcher. Envelopes already present when it starts are
 // ignored: re-arming must not act on the batch the watchdog just
 // requeued.
+//
+// Before reporting an arrival it waits out the confirm window and
+// looks again. A live Stop-hook watcher claims within a second, so an
+// envelope still sitting at the top level after that window is
+// evidence that nothing is watching - which is the only case worth
+// waking anyone for.
 func ObserveInbox(inboxDirs []string, onNew func() error) error {
 	return observeInbox(inboxDirs, onNew, defaultWatchOpts())
 }
@@ -44,15 +51,24 @@ func observeInbox(inboxDirs []string, onNew func() error, opts watchOpts) error 
 	}
 	defer w.Close()
 
-	woke, _ := w.Wait()
-	if !woke {
-		return nil
+	for {
+		woke, _ := w.Wait()
+		if !woke {
+			return nil
+		}
+		opts.sleep(opts.settle)
+		if !newArrival(inboxDirs, seen) {
+			continue
+		}
+		opts.sleep(opts.confirm)
+		if !newArrival(inboxDirs, seen) {
+			continue
+		}
+		if err := onNew(); err != nil {
+			return err
+		}
+		seen = inboxSnapshot(inboxDirs)
 	}
-	opts.sleep(opts.settle)
-	if newArrival(inboxDirs, seen) {
-		return onNew()
-	}
-	return nil
 }
 
 // inboxSnapshot records the envelopes already at the top level of each

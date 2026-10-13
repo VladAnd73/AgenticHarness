@@ -20,6 +20,13 @@ const inboxObserverPidName = "inbox-observer.pid"
 // and treats whatever follows as the operator's unsent text.
 var promptGlyphs = []string{"❯", ">"}
 
+// paneInputWindow is how many rows up from the bottom of a capture an
+// input line may be and still be believed. Measured on the live
+// coordinator panes on this host the input line sat 5 rows from the
+// bottom, under its own hint text; a selection dialog's cursor sat 14
+// rows up.
+const paneInputWindow = 10
+
 func observerPidPath(projectRoot string) (string, error) {
 	project, err := task.ProjectName(projectRoot)
 	if err != nil {
@@ -44,14 +51,22 @@ func observerAlive(projectRoot string) bool {
 		return false
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil || pid <= 1 {
+	if err != nil {
+		return false
+	}
+	return watcherProcessAlive(pid)
+}
+
+// watcherProcessAlive reports whether pid is a running inbox watcher.
+// The cmdline check is what stops a recycled pid belonging to some
+// unrelated process from passing for one.
+func watcherProcessAlive(pid int) bool {
+	if pid <= 1 {
 		return false
 	}
 	if err := syscall.Kill(pid, 0); err != nil {
 		return false
 	}
-	// A recycled pid belonging to something else must not count as an
-	// armed observer.
 	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 	if err != nil {
 		return false
@@ -78,6 +93,16 @@ func spawnObserver(projectRoot string, dirs []string) error {
 	if err != nil {
 		return err
 	}
+	// Everything that can fail has to fail before the process exists.
+	// An observer started and then found to be untrackable is a live
+	// process nothing will ever reap, and the next tick starts another.
+	p, err := observerPidPath(projectRoot)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
 	session := CoordinatorSessionName(projectRoot)
 	cmd := exec.Command(self, "hooks", "watch-inbox", "--observe", "--wake-session", session)
 	cmd.Dir = projectRoot
@@ -95,14 +120,6 @@ func spawnObserver(projectRoot string, dirs []string) error {
 	}
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Release()
-
-	p, perr := observerPidPath(projectRoot)
-	if perr != nil {
-		return perr
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
 	return os.WriteFile(p, []byte(strconv.Itoa(pid)+"\n"), 0o644)
 }
 
@@ -129,8 +146,24 @@ func paneHasDraft(session string) (hasDraft bool, known bool) {
 	if err != nil {
 		return false, false
 	}
-	lines := strings.Split(string(out), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
+	return draftFromPane(string(out))
+}
+
+// draftFromPane is the pane-reading half of paneHasDraft, split out so
+// the decision can be tested against real captures without a terminal.
+//
+// Only the bottom of the capture counts. An agent anchors its input
+// box to the last few rows, but the same glyph opens the selected row
+// of a selection dialog anywhere in the pane. Binding to one of those
+// reads a dialog row as the operator's input line, and a row that
+// renders empty after its glyph would be read as "nothing typed, safe
+// to send" - into a dialog where Enter picks an option. Finding no
+// input line in the window is reported as unknown, which suppresses
+// the nudge.
+func draftFromPane(capture string) (hasDraft bool, known bool) {
+	lines := strings.Split(capture, "\n")
+	floor := len(lines) - paneInputWindow
+	for i := len(lines) - 1; i >= 0 && i >= floor; i-- {
 		rest, ok := afterPromptGlyph(lines[i])
 		if !ok {
 			continue
@@ -165,18 +198,27 @@ func tmuxSendKeys(session, text string) error {
 	return nil
 }
 
+// tmuxNudge types text into session's pane after one last look at it.
+// Reading the pane and sending keys are two separate round trips to
+// tmux, so an operator who starts typing between them would have the
+// nudge appended to their unfinished line and submitted on their
+// behalf. Re-reading immediately before the send narrows that window
+// to a single exec; tmux offers no primitive that would close it.
+func tmuxNudge(session, text string) error {
+	if hasDraft, known := paneHasDraft(session); !known || hasDraft {
+		return fmt.Errorf("pane changed under the nudge (draft=%v readable=%v)", hasDraft, known)
+	}
+	return tmuxSendKeys(session, text)
+}
+
 // NudgeSession types the watchdog nudge into session's pane, but only
 // when the pane is readable and provably holds no unsent operator
 // draft. An unsent draft is operator intent; typing on top of it would
 // submit something they never finished. Suppression is reported as a
 // nil error because nothing failed: the nudge was simply not safe.
 func NudgeSession(session string) error {
-	hasDraft, known := paneHasDraft(session)
-	if !known || hasDraft {
-		fmt.Fprintf(os.Stderr,
-			"inbox-observer: nudge suppressed for %s (draft=%v readable=%v)\n",
-			session, hasDraft, known)
-		return nil
+	if err := tmuxNudge(session, inboxWatchdogNudge); err != nil {
+		fmt.Fprintf(os.Stderr, "inbox-observer: nudge suppressed for %s: %v\n", session, err)
 	}
-	return tmuxSendKeys(session, inboxWatchdogNudge)
+	return nil
 }

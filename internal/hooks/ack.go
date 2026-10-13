@@ -2,6 +2,9 @@ package hooks
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,9 +23,14 @@ import (
 // that the agent woke and finished one. Until that proof arrives the
 // record sits on disk, naming an envelope that was printed to a pipe
 // nobody may have been reading.
+// The record lives inside pendingSubdir rather than at the inbox top
+// level because the top level is what inotify watches. A record written
+// beside the envelopes would fire a spurious wake at every other
+// watcher on that inbox on every single claim, on a path whose entire
+// problem is spurious wakeups.
 const (
 	pendingSubdir  = ".pending"
-	ackRecordName  = ".pending-ack"
+	ackRecordName  = ".ack"
 	ackRecordPerms = 0o644
 )
 
@@ -46,7 +54,7 @@ type PendingAck struct {
 }
 
 func ackRecordPath(inboxDir string) string {
-	return filepath.Join(inboxDir, ackRecordName)
+	return filepath.Join(inboxDir, pendingSubdir, ackRecordName)
 }
 
 // ReadPendingAck loads the un-acknowledged record for inboxDir. The
@@ -86,7 +94,11 @@ func recordPendingAck(inboxDir string, msgs []PendingMessage, now time.Time) err
 		return err
 	}
 	b = append(b, '\n')
-	tmp, err := os.CreateTemp(inboxDir, ".pending-ack-*")
+	pending := filepath.Join(inboxDir, pendingSubdir)
+	if err := os.MkdirAll(pending, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(pending, ".ack-*")
 	if err != nil {
 		return err
 	}
@@ -110,37 +122,57 @@ func recordPendingAck(inboxDir string, msgs []PendingMessage, now time.Time) err
 // inboxDir: staged envelopes are promoted into read/ and the record is
 // dropped. Idempotent, and a no-op when nothing is pending.
 func AckDelivered(inboxDir string) error {
-	if _, err := movePending(inboxDir, filepath.Join(inboxDir, "read")); err != nil {
+	_, remaining, err := movePending(inboxDir, filepath.Join(inboxDir, "read"))
+	if err != nil {
 		return err
+	}
+	if remaining > 0 {
+		return nil
 	}
 	return removeAckRecord(inboxDir)
 }
 
+// PendingAckPath is where the un-acknowledged record for inboxDir
+// lives. Exported so operator tooling (and the end-to-end test) can
+// name the file without re-deriving the layout.
+func PendingAckPath(inboxDir string) string { return ackRecordPath(inboxDir) }
+
 // RequeuePending puts a drained-but-unacknowledged batch back on the
 // inbox top level so the next drain re-delivers it, and drops the
-// record. Returns how many envelopes were requeued. Idempotent: with
-// nothing pending it returns 0.
-func RequeuePending(inboxDir string) (int, error) {
-	n, err := movePending(inboxDir, inboxDir)
+// record. Returns the names it put back, under which they now sit at
+// the top level. Idempotent: with nothing pending it returns nothing.
+//
+// The record survives when an envelope could not be moved. The record
+// is the only thing that tells the watchdog a staged envelope exists,
+// so dropping it while the envelope is still in pendingSubdir would
+// strand that envelope with nothing left to find it.
+func RequeuePending(inboxDir string) ([]string, error) {
+	moved, remaining, err := movePending(inboxDir, inboxDir)
 	if err != nil {
-		return n, err
+		return moved, err
 	}
-	return n, removeAckRecord(inboxDir)
+	if remaining > 0 {
+		return moved, nil
+	}
+	return moved, removeAckRecord(inboxDir)
 }
 
 // movePending relocates every staged *.json from pendingSubdir into
-// dst, skipping any name that already exists there.
-func movePending(inboxDir, dst string) (int, error) {
+// dst and reports the names they landed under, plus how many stayed
+// behind. Nothing at dst is ever replaced: a name already taken there
+// gets a suffixed variant, because both files are envelopes and an
+// inbox may not drop one silently.
+func movePending(inboxDir, dst string) (moved []string, remaining int, err error) {
 	pending := filepath.Join(inboxDir, pendingSubdir)
 	entries, err := os.ReadDir(pending)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return nil, 0, nil
 		}
-		return 0, err
+		return nil, 0, err
 	}
 	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	var names []string
 	for _, e := range entries {
@@ -150,15 +182,63 @@ func movePending(inboxDir, dst string) (int, error) {
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
-	moved := 0
 	for _, n := range names {
-		if err := os.Rename(filepath.Join(pending, n), filepath.Join(dst, n)); err != nil {
+		landed, err := moveWithoutClobber(filepath.Join(pending, n), dst, n)
+		if err != nil {
+			remaining++
 			continue
 		}
-		moved++
+		moved = append(moved, landed)
 	}
-	return moved, nil
+	return moved, remaining, nil
 }
+
+// moveWithoutClobber moves src into dir under name, or under a
+// suffixed variant when that name is taken. It links before unlinking
+// so the destination test and the claim are one atomic step: link
+// fails with EEXIST rather than replacing, which os.Rename would do
+// silently.
+func moveWithoutClobber(src, dir, name string) (string, error) {
+	for i := 0; ; i++ {
+		candidate := name
+		if i > 0 {
+			candidate = fmt.Sprintf("%s.dup%d%s",
+				strings.TrimSuffix(name, ".json"), i, ".json")
+		}
+		dst := filepath.Join(dir, candidate)
+		err := os.Link(src, dst)
+		if err == nil {
+			if err := os.Remove(src); err != nil {
+				return "", err
+			}
+			return candidate, nil
+		}
+		if errors.Is(err, fs.ErrExist) {
+			if i > maxDupSuffix {
+				return "", err
+			}
+			continue
+		}
+		// Hard links are not available everywhere (and never across
+		// filesystems). Fall back to a checked rename, which is
+		// exposed to a vanishingly narrow race but still refuses to
+		// overwrite a name it can see.
+		if _, serr := os.Lstat(dst); serr == nil {
+			if i > maxDupSuffix {
+				return "", err
+			}
+			continue
+		}
+		if rerr := os.Rename(src, dst); rerr != nil {
+			return "", rerr
+		}
+		return candidate, nil
+	}
+}
+
+// maxDupSuffix bounds the collision search so a pathological
+// destination cannot spin the loop forever.
+const maxDupSuffix = 100
 
 func removeAckRecord(inboxDir string) error {
 	if err := os.Remove(ackRecordPath(inboxDir)); err != nil && !os.IsNotExist(err) {

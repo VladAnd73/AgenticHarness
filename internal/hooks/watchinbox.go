@@ -48,6 +48,7 @@ func WatchInboxAtDirs(inboxDirs []string) error {
 type watchOpts struct {
 	timeout     time.Duration
 	settle      time.Duration
+	confirm     time.Duration
 	initWatcher func(dirs []string) (inboxWaiter, error)
 	sleep       func(time.Duration)
 }
@@ -61,8 +62,12 @@ type inboxWaiter interface {
 
 func defaultWatchOpts() watchOpts {
 	return watchOpts{
-		timeout:     envDurationSeconds("WATCH_TIMEOUT", 604800),
-		settle:      envDurationSeconds("WATCH_SETTLE", 1),
+		timeout: envDurationSeconds("WATCH_TIMEOUT", 604800),
+		settle:  envDurationSeconds("WATCH_SETTLE", 1),
+		// Long enough that a live Stop-hook watcher has certainly
+		// claimed the arrival, short enough that a real lost wakeup
+		// is reported while the operator is still in the room.
+		confirm:     envDurationSeconds("WATCH_CONFIRM", 10),
 		initWatcher: initPlatformWatcher,
 		sleep:       time.Sleep,
 	}

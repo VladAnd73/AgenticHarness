@@ -67,9 +67,10 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 
 	// The coordinator session: alive, and idle in the sense that
 	// matters -- its transcript has not been written since before the
-	// envelope ever arrived.
+	// envelope ever arrived. Its pane shows an agent prompt with
+	// nothing typed at it, which is the only state a nudge may touch.
 	session := CoordinatorSessionName(root)
-	startIdleSession(t, session)
+	startIdleSession(t, home, session)
 	writeStaleTranscript(t, home, root)
 
 	if err := Enable(); err != nil {
@@ -123,6 +124,32 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 		t.Error("Rearmed = false")
 	}
 
+	// Nobody touches anything. The re-arm alone cannot deliver the
+	// envelope, because the agent is not taking turns -- that is what
+	// a lost wakeup is. After the configured number of quiet ticks the
+	// watchdog stops being silent and tells the operator, once.
+	nudged := 0
+	for tick := 2; tick <= DefaultInboxWatchdogEscalateAfter+1; tick++ {
+		res, err = Reconcile(Config{TasksDir: tasks, ProjectRoot: root, MaxWorkers: 1})
+		if err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+		if res.InboxWatchdog.Escalated {
+			nudged++
+			if tick != DefaultInboxWatchdogEscalateAfter {
+				t.Errorf("escalated at tick %d, want tick %d",
+					tick, DefaultInboxWatchdogEscalateAfter)
+			}
+		}
+	}
+	if nudged != 1 {
+		t.Fatalf("escalated %d time(s) across the run, want exactly 1 (last skip: %q)",
+			nudged, res.InboxWatchdog.Skipped)
+	}
+	if pane := capturePane(t, session); !strings.Contains(pane, "requeued") {
+		t.Errorf("the nudge never reached the pane: %q", pane)
+	}
+
 	// The envelope is deliverable again: a fresh hook run drains it
 	// and asks for a wake, exactly as it would have on 2026-10-06 had
 	// the agent taken any turn.
@@ -130,6 +157,15 @@ func TestReconcile_RecoversLostWakeupEndToEnd(t *testing.T) {
 	if code != 2 || !strings.Contains(out, "new thread") {
 		t.Fatalf("recovered envelope not redeliverable: exit=%d out=%q", code, out)
 	}
+}
+
+func capturePane(t *testing.T, session string) string {
+	t.Helper()
+	out, err := exec.Command("tmux", "-L", testTmuxSocket, "capture-pane", "-p", "-t", session).Output()
+	if err != nil {
+		t.Fatalf("capture-pane %s: %v", session, err)
+	}
+	return string(out)
 }
 
 func buildSpore(t *testing.T, binDir string) string {
@@ -190,14 +226,28 @@ func asExitError(err error, target **exec.ExitError) bool {
 }
 
 // startIdleSession brings up a coordinator-named tmux session on the
-// test socket with no agent in it, so the watchdog sees a live session
-// and an unreadable (draft-assumed) pane.
-func startIdleSession(t *testing.T, session string) {
+// test socket whose pane ends in an agent prompt with nothing typed at
+// it: a live session, a readable pane, no operator draft. That is the
+// one pane state the watchdog is allowed to type into, so it is the
+// state the escalation has to be proved against.
+func startIdleSession(t *testing.T, home, session string) {
 	t.Helper()
-	if err := exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", session, "sleep 86400").Run(); err != nil {
+	script := filepath.Join(home, "idle-pane.sh")
+	body := "#!/bin/sh\ni=0\nwhile [ $i -lt 30 ]; do echo; i=$((i+1)); done\nprintf '\\342\\235\\257\\302\\240'\nsleep 86400\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", session, script).Run(); err != nil {
 		t.Fatalf("tmux new-session %s: %v", session, err)
 	}
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-session", "-t", session).Run() })
+	for range 40 {
+		if strings.Contains(capturePane(t, session), "❯") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("pane never showed a prompt: %q", capturePane(t, session))
 }
 
 // writeStaleTranscript gives the project an agent transcript whose last
@@ -205,7 +255,7 @@ func startIdleSession(t *testing.T, session string) {
 // is "this session has done nothing recently".
 func writeStaleTranscript(t *testing.T, home, root string) {
 	t.Helper()
-	dir := filepath.Join(home, ".claude", "projects", strings.ReplaceAll(root, "/", "-"))
+	dir := filepath.Join(home, ".claude", "projects", claudeProjectDir(root))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +282,7 @@ func backdateClaim(t *testing.T, inbox string, by time.Duration) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(inbox, ".pending-ack"), b, 0o644); err != nil {
+	if err := os.WriteFile(hooks.PendingAckPath(inbox), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -154,12 +154,12 @@ func TestRequeuePending_RestoresEnvelopeAndClearsRecord(t *testing.T) {
 		t.Fatalf("got %v, want ErrWake", err)
 	}
 
-	n, err := RequeuePending(inbox)
+	moved, err := RequeuePending(inbox)
 	if err != nil {
 		t.Fatalf("RequeuePending: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("requeued %d, want 1", n)
+	if len(moved) != 1 {
+		t.Fatalf("requeued %v, want 1 envelope", moved)
 	}
 	if _, err := os.Stat(filepath.Join(inbox, "100-1-1.json")); err != nil {
 		t.Errorf("envelope not back in inbox/: %v", err)
@@ -168,8 +168,8 @@ func TestRequeuePending_RestoresEnvelopeAndClearsRecord(t *testing.T) {
 		t.Error("record survived requeue")
 	}
 	// Idempotent: a second requeue finds nothing to do.
-	if n, err := RequeuePending(inbox); err != nil || n != 0 {
-		t.Errorf("second requeue: n=%d err=%v, want 0/nil", n, err)
+	if again, err := RequeuePending(inbox); err != nil || len(again) != 0 {
+		t.Errorf("second requeue: moved=%v err=%v, want none/nil", again, err)
 	}
 }
 
