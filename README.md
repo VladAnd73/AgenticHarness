@@ -329,6 +329,9 @@ Main extension points:
   task close gates.
 - [docs/budget.md](docs/budget.md) - rolling Anthropic spend tracking
   and budget advice.
+- [docs/claude-config-dir.md](docs/claude-config-dir.md) - pointing one
+  project's agents at their own Claude config directory, and what does
+  not follow them there.
 - [bootstrap/README.md](bootstrap/README.md) - bootstrap layout,
   skills, stage runbooks, and smoke test.
 

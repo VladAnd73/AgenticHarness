@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/versality/spore/internal/claudecfg"
 	"github.com/versality/spore/internal/task"
 )
 
@@ -126,6 +127,11 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 		"-e", "WT_PROJECT=" + project,
 		"-e", "SPORE_TASK_INBOX=" + inbox,
 		"-e", "SPORE_COORDINATOR_STATE_DIR=" + coordinatorState,
+	}
+	// Seeded only when the project asked for a directory, so a project
+	// that asked for nothing spawns exactly the session it spawns today.
+	if dir, err := claudecfg.ConfigDirSetting(projectRoot); err == nil && dir != "" {
+		args = append(args, "-e", claudecfg.Env+"="+dir)
 	}
 	if v := coordinatorProvider(tomlCfg); v != "" {
 		args = append(args, "-e", "SPORE_COORDINATOR_PROVIDER="+v)

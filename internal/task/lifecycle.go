@@ -13,6 +13,7 @@ import (
 
 	"github.com/versality/spore/codexpolicy"
 	"github.com/versality/spore/evidence"
+	"github.com/versality/spore/internal/claudecfg"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
@@ -509,17 +510,24 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command(
-		"tmux", "new-session", "-d",
+	args := []string{
+		"new-session", "-d",
 		"-s", session,
 		"-c", worktree,
-		"-e", "SPORE_TASK_SLUG="+slug,
-		"-e", "SPORE_PROJECT_ROOT="+projectRoot,
-		"-e", "WT_PROJECT="+project,
-		"-e", "SPORE_TASK_INBOX="+inbox,
-		"-e", "SPORE_COORDINATOR_STATE_DIR="+coordinatorState,
-		agent,
-	).CombinedOutput()
+		"-e", "SPORE_TASK_SLUG=" + slug,
+		"-e", "SPORE_PROJECT_ROOT=" + projectRoot,
+		"-e", "WT_PROJECT=" + project,
+		"-e", "SPORE_TASK_INBOX=" + inbox,
+		"-e", "SPORE_COORDINATOR_STATE_DIR=" + coordinatorState,
+	}
+	// Seeded only when the project asked for a directory. A project
+	// that asked for nothing must get nothing here, so its sessions
+	// inherit exactly what they inherited before this existed.
+	if dir, err := claudecfg.ConfigDirSetting(projectRoot); err == nil && dir != "" {
+		args = append(args, "-e", claudecfg.Env+"="+dir)
+	}
+	args = append(args, agent)
+	out, err := exec.Command("tmux", args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}
