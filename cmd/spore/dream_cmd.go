@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/versality/spore/internal/claudecfg"
 	"github.com/versality/spore/internal/dream"
 	"github.com/versality/spore/internal/statefile"
 	"github.com/versality/spore/internal/task"
@@ -156,7 +157,7 @@ func dreamDigest(out, errOut io.Writer, args []string) int {
 	}
 	now := time.Now().UTC()
 	rep, runErr := dream.Run(dream.Options{
-		ProjectsRoot: dreamTranscripts(*transcripts),
+		ProjectsRoot: dreamTranscripts(*transcripts, cwd),
 		Home:         os.Getenv("HOME"),
 		Project:      project,
 		TasksDir:     filepath.Join(cwd, "tasks"),
@@ -503,11 +504,19 @@ func dreamProject(name string) (string, error) {
 	return project, err
 }
 
-func dreamTranscripts(flagValue string) string {
+// dreamTranscripts resolves the session corpus a digest reads. The
+// nightly unit runs with an empty Environment=, so the project being
+// digested is the only thing that can name a corpus other than the
+// default one.
+func dreamTranscripts(flagValue, projectRoot string) string {
 	if strings.TrimSpace(flagValue) != "" {
 		return flagValue
 	}
-	return filepath.Join(os.Getenv("HOME"), ".claude", "projects")
+	dir, err := claudecfg.ProjectsDir(projectRoot)
+	if err != nil {
+		return filepath.Join(os.Getenv("HOME"), ".claude", "projects")
+	}
+	return dir
 }
 
 func dreamLockPath(project string) (string, error) {

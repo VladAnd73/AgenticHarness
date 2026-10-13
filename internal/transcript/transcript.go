@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/versality/spore/internal/claudecfg"
 )
 
 // SumContextTokens reads the JSONL transcript at path and returns the
@@ -89,16 +91,21 @@ done:
 }
 
 // FindFallbackTranscript locates the newest *.jsonl under
-// ~/.claude/projects/<encoded-cwd>/ when the hook payload omits
-// transcript_path. Returns "" when nothing is found.
+// <config-dir>/projects/<encoded-cwd>/ when the hook payload omits
+// transcript_path. The config dir is the one this process's project
+// resolves, which is ~/.claude unless the project moved. Returns ""
+// when nothing is found.
 func FindFallbackTranscript() string {
 	cwd := os.Getenv("CLAUDE_PROJECT_DIR")
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	encoded := strings.ReplaceAll(cwd, "/", "-")
-	home, _ := os.UserHomeDir()
-	projDir := filepath.Join(home, ".claude", "projects", encoded)
+	projects, err := claudecfg.ProjectsDir(claudecfg.ProjectRoot())
+	if err != nil {
+		return ""
+	}
+	projDir := filepath.Join(projects, encoded)
 
 	entries, err := os.ReadDir(projDir)
 	if err != nil {

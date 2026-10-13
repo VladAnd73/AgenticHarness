@@ -41,6 +41,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/versality/spore/internal/claudecfg"
 )
 
 const (
@@ -76,11 +78,11 @@ func oauthCredsPath() string {
 	if p := os.Getenv("AGENT_BUDGET_CREDS"); p != "" {
 		return p
 	}
-	home, err := os.UserHomeDir()
+	p, err := claudecfg.CredentialsPath(claudecfg.ProjectRoot())
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".claude", ".credentials.json")
+	return p
 }
 
 func loadCredentials(path string) (*credentialsFile, error) {

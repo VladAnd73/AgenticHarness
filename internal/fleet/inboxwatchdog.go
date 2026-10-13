@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/versality/spore/internal/claudecfg"
 	"github.com/versality/spore/internal/hooks"
 	"github.com/versality/spore/internal/statefile"
 	"github.com/versality/spore/internal/task"
@@ -295,7 +296,7 @@ func coordinatorInboxDirs(projectRoot string) ([]string, error) {
 // the case for any agent that does not keep one. The watchdog treats
 // that as "cannot tell" and stands down.
 func agentTranscriptActivity(projectRoot string) (time.Time, bool) {
-	base, err := claudeConfigDir()
+	base, err := claudeConfigDir(projectRoot)
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -323,19 +324,14 @@ func agentTranscriptActivity(projectRoot string) (time.Time, bool) {
 	return newest, true
 }
 
-// claudeConfigDir is where Claude Code keeps its state. A project can
-// be pointed at its own by setting CLAUDE_CONFIG_DIR, and a watchdog
-// that assumed ~/.claude would find no transcripts for that project
-// and stand down forever.
-func claudeConfigDir() (string, error) {
-	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
-		return v, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".claude"), nil
+// claudeConfigDir is where Claude Code keeps the state of the agent
+// belonging to projectRoot. A watchdog that assumed ~/.claude would
+// find no transcripts for a project that moved, and stand down
+// forever; one that asked only its own environment would get its own
+// answer for every project it judges, which is wrong in exactly the
+// case that matters -- the reconciler judging someone else's agent.
+func claudeConfigDir(projectRoot string) (string, error) {
+	return claudecfg.Dir(projectRoot)
 }
 
 // claudeProjectDir encodes a project root the way Claude Code names

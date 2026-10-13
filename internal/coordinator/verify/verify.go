@@ -77,7 +77,7 @@ func Verify(slug string, cfg Config) Result {
 	mergeEntry := findMergeEvent(slug, cfg.EventsFile)
 	r.MergeEntry = mergeEntry
 
-	session := findSessionFile(slug, cfg.ProjectsDir)
+	session := findSessionFile(slug, cfg.ProjectsDir, root)
 	finalTool, finalText, lastTS, gitCommitSeen, wtMergeSeen, crossRepoPath := analyzeSession(session)
 	r.FinalTool = finalTool
 	r.FinalText = truncate(finalText, 200)

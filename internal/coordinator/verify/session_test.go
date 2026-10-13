@@ -264,7 +264,7 @@ func TestAnalyzeSessionCrossRepoPath(t *testing.T) {
 
 func TestFindSessionFileMissingDir(t *testing.T) {
 	dir := t.TempDir()
-	got := findSessionFile("no-such-slug", dir)
+	got := findSessionFile("no-such-slug", dir, "")
 	if got != "" {
 		t.Errorf("expected empty for missing projects dir, got %q", got)
 	}
@@ -282,7 +282,7 @@ func TestFindSessionFileFindsJSONL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := findSessionFile(slug, projectsDir)
+	got := findSessionFile(slug, projectsDir, "")
 	if got != jsonlPath {
 		t.Errorf("got %q, want %q", got, jsonlPath)
 	}

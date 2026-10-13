@@ -8,12 +8,17 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/versality/spore/internal/claudecfg"
 )
 
-func findSessionFile(slug, projectsDir string) string {
+// findSessionFile locates the worker's transcript. An explicit
+// projectsDir (the --projects flag) wins; otherwise the tree is the
+// one the judged project's own config directory carries, which is not
+// necessarily the one the coordinator running this gate uses.
+func findSessionFile(slug, projectsDir, projectRoot string) string {
 	if projectsDir == "" {
-		home, _ := os.UserHomeDir()
-		projectsDir = filepath.Join(home, ".claude", "projects")
+		projectsDir, _ = claudecfg.ProjectsDir(projectRoot)
 	}
 	entries, err := filepath.Glob(filepath.Join(projectsDir, "*--worktrees-"+slug+"*"))
 	if err != nil || len(entries) == 0 {

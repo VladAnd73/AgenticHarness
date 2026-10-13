@@ -32,6 +32,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/versality/spore/internal/claudecfg"
 )
 
 const (
@@ -104,11 +106,7 @@ func projectsDir() (string, error) {
 	if d := os.Getenv("AGENT_BUDGET_PROJECTS"); d != "" {
 		return d, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return claudecfg.ProjectsDir(claudecfg.ProjectRoot())
 }
 
 func capUSD(env string, def float64) float64 {
