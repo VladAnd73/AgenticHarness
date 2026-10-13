@@ -93,8 +93,8 @@ func TestDirFallsThroughWhenSporeTOMLIsMalformed(t *testing.T) {
 	want := filepath.Join(home, ".claude")
 
 	for name, content := range map[string]string{
-		"oversized line":  "[coordinator]\nbrief = \"" + strings.Repeat("x", 70000) + "\"\n",
-		"entry with no =": "[coordinator]\nthis is not an entry\n",
+		"line past the ceiling": "[coordinator]\nbrief = \"" + strings.Repeat("x", maxTOMLLine+1) + "\"\n",
+		"entry with no =":       "[coordinator]\nthis is not an entry\n",
 	} {
 		got, err := Dir(writeTOML(t, content))
 		if err != nil {
@@ -104,6 +104,55 @@ func TestDirFallsThroughWhenSporeTOMLIsMalformed(t *testing.T) {
 		if got != want {
 			t.Errorf("%s: Dir = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// Scenario 2, called out on its own because it is strictly wider than
+// "malformed": the file is valid TOML, the long line sits in a section
+// this parser does not even look at, and there is no [claude] section
+// anywhere. Only bufio.Scanner's 64KB token ceiling turns it into a
+// failure. On main none of the read sites opened spore.toml at all, so
+// this project must still resolve ~/.claude.
+func TestDirFallsThroughWhenAnUnrelatedSectionHasAnOversizedLine(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	os.Unsetenv(Env)
+
+	want := filepath.Join(home, ".claude")
+	for name, size := range map[string]int{
+		"past bufio.Scanner's default ceiling": 70000,
+		"past this parser's ceiling":           maxTOMLLine + 1,
+	} {
+		root := writeTOML(t, "[other]\nnote = \""+strings.Repeat("x", size)+"\"\n")
+		got, err := Dir(root)
+		if err != nil {
+			t.Errorf("%s: Dir: %v", name, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: Dir = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// The residual the ceiling leaves behind once Dir is tolerant: a
+// project that DID configure a directory loses it to a long line in a
+// section that has nothing to do with it. Falling through is right for
+// a project that set nothing and wrong here -- the setting is present
+// and readable, and the resolver must not quietly resolve somewhere
+// else.
+func TestAnOversizedUnrelatedLineDoesNotLoseTheSetting(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	os.Unsetenv(Env)
+
+	root := writeTOML(t, "[other]\nnote = \""+strings.Repeat("x", 70000)+"\"\n"+
+		"\n[claude]\nconfig_dir = \"/srv/cfg/assistant\"\n")
+	got, err := Dir(root)
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if got != "/srv/cfg/assistant" {
+		t.Errorf("Dir = %q, want %q: a long line elsewhere lost the setting", got, "/srv/cfg/assistant")
 	}
 }
 

@@ -171,6 +171,16 @@ func expand(v, projectRoot string) (string, error) {
 	return filepath.Join(projectRoot, v), nil
 }
 
+// maxTOMLLine is how long a single spore.toml line may be before the
+// scanner gives up. bufio.Scanner defaults to 64KB, which is plenty
+// for any entry a person writes but not for an entry a generator
+// wrote, and a line over the ceiling fails the whole parse -- so a
+// long value in a section this parser does not even read would lose a
+// [claude] setting that is present and perfectly readable. A megabyte
+// is far above anything legitimate and still bounds the buffer; past
+// it, Dir's fall-through is the backstop.
+const maxTOMLLine = 1 << 20
+
 // parseClaudeTOML reads the [claude] section of the same tiny TOML
 // subset the rest of the kernel parses: bare or quoted scalars,
 // `# comment` lines, blank lines. Sections other than [claude] are
@@ -187,6 +197,7 @@ func parseClaudeTOML(content string) (string, []string, error) {
 	var warnings []string
 	inSection := false
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	scanner.Buffer(make([]byte, 0, 64*1024), maxTOMLLine)
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		line := strings.TrimSpace(stripComment(scanner.Text()))
 		if line == "" {
