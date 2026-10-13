@@ -39,6 +39,40 @@ Only the top level is watched by inotify. The record lives inside
 would fire a spurious wake at every other watcher on that inbox on
 every single claim.
 
+## Who may receive a tell
+
+A send creates the inbox directory if it is missing, which is what makes
+a first delivery to a freshly spawned worker work. Left unchecked, that
+same `MkdirAll` made a typo indistinguishable from a delivery: until
+2026-10-13 `spore task tell <typo> "msg"` exited 0, minted a directory
+nothing watched, and dropped the envelope there.
+
+`Tell` and `TellProject` now refuse a destination nothing would read.
+A slug qualifies three ways, and one is enough:
+
+- It is reserved. Only `coordinator` is, today. It never has a task
+  file and it receives every watcher escalation on every project, so a
+  gate that forgot it would silence alerts fleet-wide.
+- Its inbox directory already exists, so something is draining it.
+- `tasks/<slug>.md` exists, in any status. Existence is the test, not
+  activity: queuing a message for a paused or blocked task is
+  legitimate, and gating on status would add a second way for delivery
+  to fail.
+
+Anything else returns an error wrapping `task.ErrUnknownSlug` and writes
+nothing at all.
+
+The task file is looked up under the **main repo root**, resolved with
+`git rev-parse --git-common-dir`, never relative to the caller's current
+directory. A worker telling from its own worktree sees no `tasks/`
+there, so a cwd-relative lookup would reject every valid slug in the
+project - trading a silent delivery bug for a loud outage.
+
+`TellProject` cannot run the task-file check at all, because a project
+NAME does not locate that project's checkout. Reserved names and an
+existing inbox carry the whole gate there. That covers every caller in
+the tree: all of them address `coordinator`.
+
 ## Delivery is two phase
 
 **Claim.** A drain renames every top-level `*.json` into `.pending/`.
