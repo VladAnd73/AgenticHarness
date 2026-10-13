@@ -103,23 +103,35 @@ func stateBaseDir() (string, error) {
 // the worktree path and silently rename the project to the worktree
 // slug from any rover cwd.
 func ProjectName(projectRoot string) (string, error) {
-	if projectRoot == "" {
+	root, err := MainRepoRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Base(root), nil
+}
+
+// MainRepoRoot returns the main repo root containing dir, so a caller
+// standing in a linked worktree still reads the project's files rather
+// than the worktree's partial copy. Pass "" to use the current working
+// directory. Falls back to dir itself when it is not inside a git repo.
+func MainRepoRoot(dir string) (string, error) {
+	if dir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", err
 		}
-		projectRoot = wd
+		dir = wd
 	}
-	if out, err := gitCmd(projectRoot, "rev-parse", "--git-common-dir").Output(); err == nil {
+	if out, err := gitCmd(dir, "rev-parse", "--git-common-dir").Output(); err == nil {
 		common := strings.TrimSpace(string(out))
 		if common != "" {
 			if !filepath.IsAbs(common) {
-				common = filepath.Join(projectRoot, common)
+				common = filepath.Join(dir, common)
 			}
-			return filepath.Base(filepath.Dir(common)), nil
+			return filepath.Dir(common), nil
 		}
 	}
-	return filepath.Base(projectRoot), nil
+	return dir, nil
 }
 
 // CountUnreadInbox returns the number of *.json files sitting at the
