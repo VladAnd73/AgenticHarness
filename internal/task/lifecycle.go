@@ -13,6 +13,7 @@ import (
 
 	"github.com/versality/spore/codexpolicy"
 	"github.com/versality/spore/evidence"
+	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/matter"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
@@ -509,17 +510,27 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command(
-		"tmux", "new-session", "-d",
+	projectEnv, envMsgs, err := agentenv.Load(project)
+	for _, m := range envMsgs {
+		fmt.Fprintf(os.Stderr, "agent.env: %s\n", m)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	args := []string{
+		"new-session", "-d",
 		"-s", session,
 		"-c", worktree,
-		"-e", "SPORE_TASK_SLUG="+slug,
-		"-e", "SPORE_PROJECT_ROOT="+projectRoot,
-		"-e", "WT_PROJECT="+project,
-		"-e", "SPORE_TASK_INBOX="+inbox,
-		"-e", "SPORE_COORDINATOR_STATE_DIR="+coordinatorState,
-		agent,
-	).CombinedOutput()
+		"-e", "SPORE_TASK_SLUG=" + slug,
+		"-e", "SPORE_PROJECT_ROOT=" + projectRoot,
+		"-e", "WT_PROJECT=" + project,
+		"-e", "SPORE_TASK_INBOX=" + inbox,
+		"-e", "SPORE_COORDINATOR_STATE_DIR=" + coordinatorState,
+	}
+	args = append(args, agentenv.TmuxArgs(projectEnv)...)
+	args = append(args, agent)
+	out, err := exec.Command("tmux", args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}

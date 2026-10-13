@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/task"
 )
 
@@ -115,6 +116,14 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 		return "", false, err
 	}
 
+	projectEnv, envMsgs, err := agentenv.Load(project)
+	for _, m := range envMsgs {
+		fmt.Fprintf(os.Stderr, "agent.env: %s\n", m)
+	}
+	if err != nil {
+		return "", false, err
+	}
+
 	cmd := coordinatorShellCommand(agent, rolePath)
 	args := []string{
 		"new-session", "-d",
@@ -133,6 +142,7 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	if v := coordinatorModel(tomlCfg); v != "" {
 		args = append(args, "-e", "SPORE_COORDINATOR_MODEL="+v)
 	}
+	args = append(args, agentenv.TmuxArgs(projectEnv)...)
 	args = append(args, cmd)
 	out, err := exec.Command("tmux", args...).CombinedOutput()
 	if err != nil {
