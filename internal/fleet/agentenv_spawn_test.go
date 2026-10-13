@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/task"
@@ -61,6 +62,16 @@ func agentEnvProject(t *testing.T, body string, mode os.FileMode) string {
 // paneEnviron reads the real environment of the process tmux started
 // in session. tmux show-environment reports server and session state,
 // not what the child actually received, so it cannot answer this.
+//
+// It polls rather than reading once. `tmux new-session -d` returns as
+// soon as the server has forked the pane process, which has not
+// necessarily reached execve yet, and /proc/<pid>/environ is empty for
+// the width of that window. A single read that lands there reports
+// every variable as missing even though tmux delivered them all, which
+// is a false failure for a positive assertion and a false pass for a
+// negative one. SPORE_TASK_SLUG is the sentinel: every coordinator
+// spawn seeds it, so seeing it proves the post-execve environment is
+// in view.
 func paneEnviron(t *testing.T, session string) map[string]string {
 	t.Helper()
 	out, err := exec.Command("tmux", "-L", testTmuxSocket, "list-panes", "-t", session, "-F", "#{pane_pid}").Output()
@@ -68,9 +79,25 @@ func paneEnviron(t *testing.T, session string) map[string]string {
 		t.Fatalf("list-panes %s: %v", session, err)
 	}
 	pid := strings.TrimSpace(string(out))
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		env, readErr := readEnviron(pid)
+		if readErr == nil && env["SPORE_TASK_SLUG"] != "" {
+			return env
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %s never exposed a spawned environment: %d variables, no SPORE_TASK_SLUG (last read error %v)",
+				pid, len(env), readErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func readEnviron(pid string) (map[string]string, error) {
 	raw, err := os.ReadFile(filepath.Join("/proc", pid, "environ"))
 	if err != nil {
-		t.Fatalf("read /proc/%s/environ: %v", pid, err)
+		return nil, err
 	}
 	env := map[string]string{}
 	for _, kv := range strings.Split(string(raw), "\x00") {
@@ -78,7 +105,7 @@ func paneEnviron(t *testing.T, session string) map[string]string {
 			env[k] = v
 		}
 	}
-	return env
+	return env, nil
 }
 
 func captureStderr(t *testing.T, fn func()) string {

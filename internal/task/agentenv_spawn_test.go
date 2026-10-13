@@ -71,16 +71,48 @@ func agentEnvWorker(t *testing.T, body string, agentCmd string) (tasksDir, slug 
 	return tasksDir, slug
 }
 
+// workerPaneEnviron reads the environment the spawned worker process
+// actually received.
+//
+// It polls rather than reading once. `tmux new-session -d` returns as
+// soon as the server has forked the pane process, which has not
+// necessarily reached execve yet, and /proc/<pid>/environ is empty for
+// the width of that window. A single read that lands there reports
+// every variable as missing even though tmux delivered them all, which
+// is a false failure for a positive assertion and a false pass for a
+// negative one. SPORE_TASK_SLUG is the sentinel: every worker spawn
+// seeds it, so seeing it proves the post-execve environment is in view.
 func workerPaneEnviron(t *testing.T, session string) map[string]string {
+	t.Helper()
+	return paneEnvironAfterExec(t, session, "SPORE_TASK_SLUG")
+}
+
+func paneEnvironAfterExec(t *testing.T, session, sentinel string) map[string]string {
 	t.Helper()
 	out, err := exec.Command("tmux", "-L", testTmuxSocket, "list-panes", "-t", session, "-F", "#{pane_pid}").Output()
 	if err != nil {
 		t.Fatalf("list-panes %s: %v", session, err)
 	}
 	pid := strings.TrimSpace(string(out))
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		env, readErr := readEnviron(pid)
+		if readErr == nil && env[sentinel] != "" {
+			return env
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %s never exposed a spawned environment: %d variables, no %s (last read error %v)",
+				pid, len(env), sentinel, readErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func readEnviron(pid string) (map[string]string, error) {
 	raw, err := os.ReadFile(filepath.Join("/proc", pid, "environ"))
 	if err != nil {
-		t.Fatalf("read /proc/%s/environ: %v", pid, err)
+		return nil, err
 	}
 	env := map[string]string{}
 	for _, kv := range strings.Split(string(raw), "\x00") {
@@ -88,7 +120,7 @@ func workerPaneEnviron(t *testing.T, session string) map[string]string {
 			env[k] = v
 		}
 	}
-	return env
+	return env, nil
 }
 
 // A3
