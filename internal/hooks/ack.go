@@ -28,6 +28,13 @@ import (
 // beside the envelopes would fire a spurious wake at every other
 // watcher on that inbox on every single claim, on a path whose entire
 // problem is spurious wakeups.
+//
+// Staging constrains the deploy order. A spore older than this release
+// lists only top-level *.json and skips directories, so it reads an
+// inbox holding a staged envelope as empty and never promotes,
+// requeues or re-delivers it. Upgrade every binary on a host together
+// and do not roll one back while an envelope is staged. See
+// docs/inbox-delivery.md for the hand recovery.
 const (
 	pendingSubdir  = ".pending"
 	ackRecordName  = ".ack"

@@ -244,3 +244,31 @@ func TestSpawnObserver_StartsNothingWhenThePidfileCannotBeWritten(t *testing.T) 
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// The escalate-after knob has to mean the same thing at its smallest
+// setting as at its default. With N=1 the first qualifying tick both
+// repairs the inbox and tells the operator; with N=3 it stays silent
+// until the third. Either way the nudge happens exactly once.
+func TestInboxWatchdog_EscalateAfterHoldsAtOneAndAtTheDefault(t *testing.T) {
+	for _, n := range []int{1, DefaultInboxWatchdogEscalateAfter} {
+		h := newWatchdogHarness(t)
+		h.claim(t, "100-1-1.json", "new thread")
+
+		for tick := 1; tick <= n+2; tick++ {
+			res, err := runInboxWatchdog(h.cfg(), n, h.deps)
+			if err != nil {
+				t.Fatalf("n=%d tick %d: %v", n, tick, err)
+			}
+			if res.Escalated != (tick == n) {
+				t.Errorf("n=%d tick %d: Escalated=%v, want %v",
+					n, tick, res.Escalated, tick == n)
+			}
+		}
+		if len(h.nudges) != 1 {
+			t.Errorf("n=%d: nudges = %v, want exactly 1", n, h.nudges)
+		}
+		if _, err := os.Stat(filepath.Join(h.inbox, "100-1-1.json")); err != nil {
+			t.Errorf("n=%d: envelope is not in the inbox the nudge points at: %v", n, err)
+		}
+	}
+}
