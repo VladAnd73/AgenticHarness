@@ -3,6 +3,7 @@ package fleet
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,9 +55,9 @@ driver = "claude"
 			want:  CoordinatorConfig{ExternalSessionPattern: "^helm-.*"},
 		},
 		{
-			name:    "unknown key errors",
-			input:   "[coordinator]\nbogus = 1\n",
-			wantErr: true,
+			name:  "unknown key is ignored, not fatal",
+			input: "[coordinator]\ndriver = \"claude\"\nbogus = 1\n",
+			want:  CoordinatorConfig{Driver: "claude"},
 		},
 		{
 			name:    "malformed line errors",
@@ -71,7 +72,7 @@ driver = "claude"
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseCoordinatorTOML(tc.input)
+			got, _, err := parseCoordinatorTOML(tc.input)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil; result=%+v", got)
@@ -85,6 +86,55 @@ driver = "claude"
 				t.Errorf("got %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+// Finding 3C. The parser rejected any key it did not recognise, and
+// every caller swallowed that error into a zero config. A host running
+// a mix of spore versions therefore lost driver, model AND brief the
+// moment a newer binary's key appeared in a shared spore.toml. A key
+// from the future is not a reason to discard the present.
+func TestParseCoordinatorTOML_AKeyFromTheFutureDoesNotDiscardTheSection(t *testing.T) {
+	input := `
+[coordinator]
+driver = "claude"
+model  = "opus"
+brief  = "bootstrap/coordinator/role.md"
+some_key_a_later_release_adds = 9
+`
+	got, warnings, err := parseCoordinatorTOML(input)
+	if err != nil {
+		t.Fatalf("parseCoordinatorTOML: %v", err)
+	}
+	want := CoordinatorConfig{
+		Driver: "claude",
+		Model:  "opus",
+		Brief:  "bootstrap/coordinator/role.md",
+	}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "some_key_a_later_release_adds") {
+		t.Errorf("warnings = %v, want one naming the unknown key", warnings)
+	}
+}
+
+// Same rule for a value this binary cannot use: the knob falls back to
+// its default and the rest of the section survives.
+func TestParseCoordinatorTOML_AnUnusableValueDoesNotDiscardTheSection(t *testing.T) {
+	input := "[coordinator]\ndriver = \"claude\"\ninbox_watchdog_escalate_after = \"soon\"\n"
+	got, warnings, err := parseCoordinatorTOML(input)
+	if err != nil {
+		t.Fatalf("parseCoordinatorTOML: %v", err)
+	}
+	if got.Driver != "claude" {
+		t.Errorf("driver = %q, want %q", got.Driver, "claude")
+	}
+	if got.InboxWatchdogEscalateAfter != 0 {
+		t.Errorf("escalate_after = %d, want 0 so the default applies", got.InboxWatchdogEscalateAfter)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "inbox_watchdog_escalate_after") {
+		t.Errorf("warnings = %v, want one naming the key", warnings)
 	}
 }
 

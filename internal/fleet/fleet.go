@@ -53,6 +53,11 @@ type Result struct {
 	Kept    []string
 	Skipped []string
 
+	// InboxWatchdog is the lost-wakeup watchdog's outcome for this
+	// pass. Zero-valued when the kill switch is off, since the
+	// watchdog never runs then.
+	InboxWatchdog InboxWatchdogResult
+
 	// Matter is the per-matter sync outcome from the prelude pass.
 	// Empty when no matters are configured. Errors do not abort
 	// reconciliation: the worker pass still runs against whatever
@@ -96,6 +101,7 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 
 	matterRes := syncMatters(cfg.ProjectRoot)
+	watchdogRes := reconcileInboxWatchdog(cfg)
 
 	metas, err := task.List(cfg.TasksDir)
 	if err != nil {
@@ -133,7 +139,7 @@ func Reconcile(cfg Config) (Result, error) {
 		runningSet[s] = true
 	}
 
-	res := Result{Matter: matterRes}
+	res := Result{Matter: matterRes, InboxWatchdog: watchdogRes}
 
 	// Reap first so freed slots count toward the cap on spawn.
 	// Sessions for tasks the operator paused or blocked are kept
@@ -217,6 +223,22 @@ func Reconcile(cfg Config) (Result, error) {
 	sort.Strings(res.Kept)
 	sort.Strings(res.Skipped)
 	return res, nil
+}
+
+// reconcileInboxWatchdog runs one lost-wakeup watchdog pass. A failure
+// here is reported and swallowed: the watchdog is a recovery path, and
+// a broken recovery path must not stop the reconciler from doing its
+// primary job of keeping sessions in line with the queue.
+func reconcileInboxWatchdog(cfg Config) InboxWatchdogResult {
+	n, err := LoadInboxWatchdogEscalateAfter(cfg.ProjectRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "inbox-watchdog: config:", err)
+	}
+	res, err := runInboxWatchdog(cfg, n, defaultInboxWatchdogDeps())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "inbox-watchdog:", err)
+	}
+	return res
 }
 
 // agentCountsFromMetas tallies the agent name carried in the

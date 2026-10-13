@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +37,28 @@ type CoordinatorConfig struct {
 	// session running outside the kernel's spore/<project>/coordinator
 	// slot). Empty disables the check and the kernel spawns its own.
 	ExternalSessionPattern string
+
+	// InboxWatchdogEscalateAfter is how many consecutive reconcile
+	// ticks may find this coordinator sitting on an un-acknowledged
+	// inbox delivery before the watchdog escalates from a silent
+	// requeue to a pane nudge. Zero means use
+	// DefaultInboxWatchdogEscalateAfter.
+	InboxWatchdogEscalateAfter int
+}
+
+// LoadInboxWatchdogEscalateAfter reads
+// `[coordinator] inbox_watchdog_escalate_after = N` from
+// <projectRoot>/spore.toml, falling back to
+// DefaultInboxWatchdogEscalateAfter when the key or the file is absent.
+func LoadInboxWatchdogEscalateAfter(projectRoot string) (int, error) {
+	cfg, err := LoadCoordinatorConfig(projectRoot)
+	if err != nil {
+		return DefaultInboxWatchdogEscalateAfter, err
+	}
+	if cfg.InboxWatchdogEscalateAfter < 1 {
+		return DefaultInboxWatchdogEscalateAfter, nil
+	}
+	return cfg.InboxWatchdogEscalateAfter, nil
 }
 
 // LoadCoordinatorConfig reads `[coordinator]` from <projectRoot>/spore.toml.
@@ -50,7 +73,10 @@ func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
 		}
 		return CoordinatorConfig{}, fmt.Errorf("coordinator: read %s: %w", tomlPath, err)
 	}
-	cfg, err := parseCoordinatorTOML(string(b))
+	cfg, warnings, err := parseCoordinatorTOML(string(b))
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "coordinator: %s: %s\n", tomlPath, w)
+	}
 	if err != nil {
 		return CoordinatorConfig{}, fmt.Errorf("coordinator: parse %s: %w", tomlPath, err)
 	}
@@ -59,11 +85,18 @@ func LoadCoordinatorConfig(projectRoot string) (CoordinatorConfig, error) {
 
 // parseCoordinatorTOML reads only the [coordinator] section of a tiny
 // TOML subset: bare or quoted scalar values, `# comment` lines, and
-// blank lines. Anything outside [coordinator] is ignored. Malformed
-// entries inside the section are an error so misconfigured spore.toml
-// surfaces loudly.
-func parseCoordinatorTOML(content string) (CoordinatorConfig, error) {
+// blank lines. Anything outside [coordinator] is ignored. A line that
+// is not an entry at all is an error, because the file is then not the
+// shape this parser understands.
+//
+// A key this binary does not know, or a value it cannot use, is a
+// warning and nothing more. Hosts run several spore versions at once,
+// and failing the parse would hand every caller a zero config: a
+// single key from a newer release would silently strip driver, model
+// and brief from a coordinator an older binary spawns.
+func parseCoordinatorTOML(content string) (CoordinatorConfig, []string, error) {
 	var cfg CoordinatorConfig
+	var warnings []string
 	inSection := false
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for lineNum := 1; scanner.Scan(); lineNum++ {
@@ -80,7 +113,7 @@ func parseCoordinatorTOML(content string) (CoordinatorConfig, error) {
 		}
 		eq := strings.IndexByte(line, '=')
 		if eq <= 0 {
-			return CoordinatorConfig{}, fmt.Errorf("line %d: malformed entry %q", lineNum, line)
+			return CoordinatorConfig{}, warnings, fmt.Errorf("line %d: malformed entry %q", lineNum, line)
 		}
 		key := strings.TrimSpace(line[:eq])
 		val := stripTOMLQuotes(strings.TrimSpace(line[eq+1:]))
@@ -93,14 +126,24 @@ func parseCoordinatorTOML(content string) (CoordinatorConfig, error) {
 			cfg.Brief = val
 		case "external_session_pattern":
 			cfg.ExternalSessionPattern = val
+		case "inbox_watchdog_escalate_after":
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 1 {
+				warnings = append(warnings, fmt.Sprintf(
+					"line %d: ignoring inbox_watchdog_escalate_after = %q: want an integer >= 1",
+					lineNum, val))
+				continue
+			}
+			cfg.InboxWatchdogEscalateAfter = n
 		default:
-			return CoordinatorConfig{}, fmt.Errorf("line %d: unknown key %q in [coordinator]", lineNum, key)
+			warnings = append(warnings, fmt.Sprintf(
+				"line %d: ignoring unknown key %q in [coordinator]", lineNum, key))
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return CoordinatorConfig{}, err
+		return CoordinatorConfig{}, warnings, err
 	}
-	return cfg, nil
+	return cfg, warnings, nil
 }
 
 func stripTOMLComment(line string) string {

@@ -48,6 +48,7 @@ func WatchInboxAtDirs(inboxDirs []string) error {
 type watchOpts struct {
 	timeout     time.Duration
 	settle      time.Duration
+	confirm     time.Duration
 	initWatcher func(dirs []string) (inboxWaiter, error)
 	sleep       func(time.Duration)
 }
@@ -61,8 +62,12 @@ type inboxWaiter interface {
 
 func defaultWatchOpts() watchOpts {
 	return watchOpts{
-		timeout:     envDurationSeconds("WATCH_TIMEOUT", 604800),
-		settle:      envDurationSeconds("WATCH_SETTLE", 1),
+		timeout: envDurationSeconds("WATCH_TIMEOUT", 604800),
+		settle:  envDurationSeconds("WATCH_SETTLE", 1),
+		// Long enough that a live Stop-hook watcher has certainly
+		// claimed the arrival, short enough that a real lost wakeup
+		// is reported while the operator is still in the room.
+		confirm:     envDurationSeconds("WATCH_CONFIRM", 10),
 		initWatcher: initPlatformWatcher,
 		sleep:       time.Sleep,
 	}
@@ -79,6 +84,12 @@ func watchInboxAt(inboxDir string, stdout, stderr io.Writer, opts watchOpts) err
 func watchInboxAtDirs(inboxDirs []string, stdout, stderr io.Writer, opts watchOpts) error {
 	for _, dir := range inboxDirs {
 		if err := ensureInbox(dir); err != nil {
+			return err
+		}
+		// This process starting IS the acknowledgement. The Stop hook
+		// only runs when a turn ends, so a fresh watcher proves the
+		// agent woke for whatever the previous one printed.
+		if err := AckDelivered(dir); err != nil {
 			return err
 		}
 	}
@@ -131,15 +142,37 @@ func drainAll(inboxDirs []string, stdout io.Writer) (int, error) {
 }
 
 // drainInbox lists *.json at the top level of inboxDir, atomically
-// moves each to inboxDir/read/, and prints "[ts] source: body" for
-// every file this caller claimed. Returns the claim count.
+// moves each into the pending staging dir, records the batch, and
+// prints "[ts] source: body" for every file this caller claimed.
+// Returns the claim count.
 func drainInbox(inboxDir string, stdout io.Writer) (int, error) {
+	msgs, err := ClaimPending(inboxDir, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range msgs {
+		fmt.Fprintf(stdout, "[%s] %s: %s\n", m.TS, m.Source, m.Body)
+	}
+	return len(msgs), nil
+}
+
+// ClaimPending moves every *.json at the inbox top level into the
+// pending staging dir and writes the un-acknowledged record for the
+// batch. The rename is what makes a claim exclusive: when several
+// watchers wake on one arrival they all run this, and only the one
+// that wins the rename gets a non-empty result. Returns the claimed
+// messages, empty when another watcher won.
+//
+// Claiming is deliberately separate from printing. The record lands
+// before anything is written to stdout, so a batch stays recoverable
+// even if the process dies between the two.
+func ClaimPending(inboxDir string, now time.Time) ([]PendingMessage, error) {
 	entries, err := os.ReadDir(inboxDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return nil, nil
 		}
-		return 0, err
+		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
@@ -153,27 +186,32 @@ func drainInbox(inboxDir string, stdout io.Writer) (int, error) {
 		names = append(names, e.Name())
 	}
 	if len(names) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	sort.Strings(names)
 
-	readDir := filepath.Join(inboxDir, "read")
+	pendingDir := filepath.Join(inboxDir, pendingSubdir)
+	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
+		return nil, err
+	}
 	var claimed []string
 	for _, n := range names {
-		src := filepath.Join(inboxDir, n)
-		dst := filepath.Join(readDir, n)
-		if err := os.Rename(src, dst); err == nil {
-			claimed = append(claimed, dst)
+		if err := os.Rename(filepath.Join(inboxDir, n), filepath.Join(pendingDir, n)); err == nil {
+			claimed = append(claimed, n)
 		}
 	}
 	if len(claimed) == 0 {
-		return 0, nil
+		return nil, nil
 	}
-	for _, f := range claimed {
-		ts, source, body := readTellFile(f)
-		fmt.Fprintf(stdout, "[%s] %s: %s\n", ts, source, body)
+	msgs := make([]PendingMessage, 0, len(claimed))
+	for _, n := range claimed {
+		ts, source, body := readTellFile(filepath.Join(pendingDir, n))
+		msgs = append(msgs, PendingMessage{Name: n, TS: ts, Source: source, Body: body})
 	}
-	return len(claimed), nil
+	if err := recordPendingAck(inboxDir, msgs, now); err != nil {
+		return nil, err
+	}
+	return msgs, nil
 }
 
 func readTellFile(path string) (ts, source, body string) {
@@ -215,7 +253,7 @@ func wtStateDir() string {
 }
 
 func ensureInbox(inbox string) error {
-	for _, sub := range []string{"", ".tmp", "read"} {
+	for _, sub := range []string{"", ".tmp", "read", pendingSubdir} {
 		if err := os.MkdirAll(filepath.Join(inbox, sub), 0o755); err != nil {
 			return err
 		}
