@@ -9,11 +9,17 @@ import (
 	"time"
 )
 
-// coldTmuxSocket is the -L socket name this test passes. It is unique
-// to the test, and the matching TMUX_TMPDIR override below puts its
-// socket file in a private directory, so the server started here is a
-// cold one that no other tmux server and no operator session shares.
-const coldTmuxSocket = "spore-agentenv-cold"
+// coldTmuxSocket is the -L socket name this test passes. The matching
+// TMUX_TMPDIR override below puts its socket file in a private
+// directory, so the server started here is a cold one that no other
+// tmux server and no operator session shares.
+//
+// Both names are kept short on purpose. A unix socket path cannot
+// exceed 108 bytes, and the directory tmux builds it under is
+// <TMUX_TMPDIR>/tmux-<uid>/<name>. t.TempDir() spells the full test
+// name into its path, which already overflows that limit on a
+// continuous-integration runner whose temp root is itself long.
+const coldTmuxSocket = "cold"
 
 // TestTmuxArgsReachAColdServersPane pins the delivery both spawn sites
 // depend on, under the condition a continuous-integration runner
@@ -26,7 +32,12 @@ func TestTmuxArgsReachAColdServersPane(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skipf("tmux not available: %v", err)
 	}
-	t.Setenv("TMUX_TMPDIR", t.TempDir())
+	dir, err := os.MkdirTemp("", "sptmx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("TMUX_TMPDIR", dir)
 
 	seed := TmuxArgs([]Entry{{Key: "AGENTENV_PROBE", Value: "bar"}})
 	if len(seed) != 2 {
