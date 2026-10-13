@@ -128,11 +128,17 @@ func parseLine(line string) (key, value string, ok bool) {
 	if eq <= 0 {
 		return "", "", false
 	}
-	key = trimmed[:eq]
+	key = strings.TrimSpace(trimmed[:eq])
 	if !validKey(key) {
 		return "", "", false
 	}
-	value = trimmed[eq+1:]
+	// Whitespace either side of an unquoted value is meaningless and
+	// invisible: `TOKEN= abcdef` is a space the operator cannot see in
+	// a credential they cannot read back. Trimming both sides is the
+	// only resolution that cannot produce a wrong value, and the
+	// quoted form below stays available for the rare case where the
+	// whitespace is deliberate.
+	value = strings.TrimSpace(trimmed[eq+1:])
 	if len(value) > 0 && (value[0] == '"' || value[0] == '\'') {
 		quote := value[0]
 		if len(value) < 2 || value[len(value)-1] != quote {

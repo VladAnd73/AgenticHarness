@@ -96,8 +96,17 @@ func Reconcile(cfg Config) (Result, error) {
 		cfg.MaxWorkers = DefaultMaxWorkers
 	}
 
+	// A coordinator that will not spawn is reported but does not end
+	// the pass. Reaping and spawning workers is the reconciler's
+	// primary job and none of it depends on the coordinator session;
+	// returning here instead skipped matter sync, the inbox watchdog
+	// and the whole worker pass, every 60s, for as long as the cause
+	// persisted. The error is still returned to the caller at the end,
+	// so nothing that acts on it today stops acting on it.
+	var coordinatorErr error
 	if _, _, err := EnsureCoordinator(cfg.ProjectRoot); err != nil {
-		return Result{}, fmt.Errorf("coordinator: %w", err)
+		coordinatorErr = fmt.Errorf("coordinator: %w", err)
+		fmt.Fprintln(os.Stderr, "fleet:", coordinatorErr)
 	}
 
 	matterRes := syncMatters(cfg.ProjectRoot)
@@ -222,7 +231,7 @@ func Reconcile(cfg Config) (Result, error) {
 	sort.Strings(res.Reaped)
 	sort.Strings(res.Kept)
 	sort.Strings(res.Skipped)
-	return res, nil
+	return res, coordinatorErr
 }
 
 // reconcileInboxWatchdog runs one lost-wakeup watchdog pass. A failure

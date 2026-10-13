@@ -217,3 +217,57 @@ func TestPathFollowsXDGConfigHome(t *testing.T) {
 		t.Fatalf("want %q, got %q", want, got)
 	}
 }
+
+// S2: a single space after the `=` is likelier than a stray quote and
+// exactly as invisible. An unquoted value carries no meaningful
+// surrounding whitespace, so it is trimmed on both sides.
+func TestLoadFileTrimsLeadingWhitespaceOnUnquotedValues(t *testing.T) {
+	path := writeEnv(t, "TOKEN= abcdef\nTABBED=\tabcdef\n", 0o600)
+	entries, msgs, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entries, got %v", entries)
+	}
+	if entries[0].Value != "abcdef" {
+		t.Errorf("leading space: want %q, got %q", "abcdef", entries[0].Value)
+	}
+	if entries[1].Value != "abcdef" {
+		t.Errorf("leading tab: want %q, got %q", "abcdef", entries[1].Value)
+	}
+	if joined := strings.Join(msgs, "\n"); strings.Contains(joined, "abcdef") {
+		t.Errorf("no message may print the value, got %q", joined)
+	}
+}
+
+// Whitespace around the key is equally meaningless, and refusing it
+// while silently accepting it around the value would be incoherent.
+func TestLoadFileTrimsWhitespaceAroundTheKey(t *testing.T) {
+	path := writeEnv(t, "TOKEN = abcdef\n", 0o600)
+	entries, _, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Key != "TOKEN" || entries[0].Value != "abcdef" {
+		t.Fatalf("want {TOKEN abcdef}, got %v", entries)
+	}
+}
+
+// S3: quotes are how an operator says they meant the whitespace.
+func TestLoadFileKeepsADeliberateLeadingSpaceInsideQuotes(t *testing.T) {
+	path := writeEnv(t, "A=\" leading\"\nB=' both '\n", 0o600)
+	entries, _, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entries, got %v", entries)
+	}
+	if entries[0].Value != " leading" {
+		t.Errorf("want %q, got %q", " leading", entries[0].Value)
+	}
+	if entries[1].Value != " both " {
+		t.Errorf("want %q, got %q", " both ", entries[1].Value)
+	}
+}

@@ -82,8 +82,24 @@ what the operator is left with.
 so spore cannot know whether the variable the operator cared about was
 set. Skipping the line and carrying on would start the agent on the
 default account - exactly the outcome the file exists to prevent - and
-it would look like it worked. A session that does not come up is
-noticed in seconds.
+it would look like it worked.
+
+Be clear about how visible that refusal actually is. Run by hand, it is
+immediate: the command fails and prints the path and line number. Under
+the `spore-fleet-reconcile` systemd timer it is not. The pass runs
+headless every 60 seconds, the message goes to journald, and the unit
+goes to `failed` - which on a host that already has units sitting in
+`failed` unnoticed is not a channel anyone reads. So a refusal under the
+timer means the affected agents quietly never spawn. What the refusal
+does guarantee is that none of them comes up on the wrong identity.
+
+That is also why the reconciler does not stop at a refusal. A coordinator
+that will not spawn is reported and the pass carries on: matter sync, the
+inbox watchdog, the reap loop and the worker pass do not depend on the
+coordinator session, and letting one project's typo cancel all of that
+every 60 seconds costs far more than it protects. The error is still
+returned to the caller afterwards, so the unit still fails exactly as it
+did before.
 
 **A reserved key is dropped and the spawn continues.** `SPORE_*` and
 `WT_*` are spore's own namespace; every variable either spawn site sets
