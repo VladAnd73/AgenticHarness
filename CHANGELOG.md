@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `internal/agentenv`: new per-project environment file. spore now
+  reads `${XDG_CONFIG_HOME:-$HOME/.config}/spore/<project>/agent.env`
+  and seeds its `KEY=VALUE` entries into every tmux session it spawns,
+  for both the coordinator and workers. Lets one project's agents run
+  with a different account, budget state directory or endpoint than the
+  rest of the host, without touching any systemd unit. A project
+  without the file behaves exactly as before. Nothing expands and
+  nothing unescapes; matched surrounding quotes are stripped and an
+  unmatched one is an error, so the file cannot quietly produce a
+  value that only half-works. A malformed line refuses the spawn, a
+  `SPORE_*` / `WT_*` key is dropped with a message, and a mode looser
+  than 0600 warns. No message ever contains a value, only the key and
+  the line number. See `docs/agent-env.md`.
 - `bootstrap/handover/spore-coordinator-launch.sh`: support a host-wide
   shared role file in addition to the per-project `$SPORE_COORDINATOR_ROLE`.
   The launcher now reads `$SPORE_COORDINATOR_ROLE_SHARED` (default
