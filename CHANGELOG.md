@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- `flake.nix`: Claude Code's version is now an explicit pin. A second
+  nixpkgs input, `nixpkgs-claude-code`, is held at one named revision
+  and read for exactly one package, exposed as
+  `packages.<system>.claude-code`. Before this, a host took Claude Code
+  from whatever nixpkgs revision its own system flake sat on, so moving
+  Claude Code meant moving the kernel, systemd and every other package
+  in the same rebuild. The pin currently resolves to 2.1.296. It
+  replaces the `sadjow/claude-code-nix` input, which had not been
+  re-locked since August and brought a second nixpkgs evaluation along
+  with it; both package the same official release binary with the same
+  `$out/bin` layout. A new flake check, `claude-code-version`, runs the
+  built binary and fails below the floor. The root `nixpkgs` revision is
+  unchanged: it only loses the `_2` suffix in `flake.lock` because the
+  node that held the plain name is gone. See `docs/claude-code-pin.md`
+  for adopting the pin on a host and for bumping it.
+- `bootstrap/flake/configuration.nix`: the shipped template takes
+  claude-code from spore through a single binding used for both the
+  interactive `claude` on PATH and `services.spore-fleet.claudeCodePackage`,
+  so the two cannot drift apart unnoticed. Downstream consumers inherit
+  the pin when they re-lock their spore input.
 - `internal/agentenv`: new per-project environment file. spore now
   reads `${XDG_CONFIG_HOME:-$HOME/.config}/spore/<project>/agent.env`
   and seeds its `KEY=VALUE` entries into every tmux session it spawns,
