@@ -243,6 +243,91 @@ func TestSmokeScriptExitsNonZeroWhenTheNotificationHookWritesNoPoke(t *testing.T
 	}
 }
 
+// A deny list is a list of permission RULES, not a list of Claude Code
+// identifiers. Most of them - "Bash(curl:*)" and friends - appear
+// nowhere in the Claude Code bundle and must not be looked for there.
+// The first such rule anyone adds on any host must not turn the run red.
+func TestSmokeScriptToleratesUnrelatedDenyRules(t *testing.T) {
+	stubs := defaultSmokeStubs()
+	stubs.denyNames = append(stubs.denyNames, "Bash(curl:*)", "Read(./secrets/**)")
+
+	out, code := runSmokeScript(t, stubs)
+	if code != 0 {
+		t.Fatalf("an unrelated deny rule must not fail the run, got exit %d\n%s", code, out)
+	}
+	if strings.Contains(out, "CHANGED") {
+		t.Fatalf("an unrelated deny rule reported CHANGED\n%s", out)
+	}
+}
+
+func TestSmokeScriptExitsNonZeroWhenSettingsStopDenyingSendMessage(t *testing.T) {
+	stubs := defaultSmokeStubs()
+	stubs.denyNames = removeString(stubs.denyNames, "SendMessage")
+
+	out, code := runSmokeScript(t, stubs)
+	if code == 0 {
+		t.Fatalf("a deny list that no longer names SendMessage must fail the run, got exit 0\n%s", out)
+	}
+	if !strings.Contains(out, "SendMessage") {
+		t.Fatalf("want a CHANGED line naming SendMessage\n%s", out)
+	}
+}
+
+// "unreadable" is what the script says when it could not get at
+// settings.json at all. A file it read fine that happens to deny
+// nothing is a different fault and must read differently.
+func TestSmokeScriptCallsAnEmptyDenyListEmptyNotUnreadable(t *testing.T) {
+	stubs := defaultSmokeStubs()
+	stubs.denyNames = []string{}
+
+	out, code := runSmokeScript(t, stubs)
+	if code == 0 {
+		t.Fatalf("an empty deny list must fail the run, got exit 0\n%s", out)
+	}
+	if strings.Contains(out, "unreadable") {
+		t.Fatalf("an empty deny list was reported as unreadable\n%s", out)
+	}
+	if !strings.Contains(out, "empty") {
+		t.Fatalf("want the deny list reported as empty\n%s", out)
+	}
+}
+
+// --help prints the script's own header comment. Printing it by line
+// number means the next person to add a sentence to that header
+// silently truncates the help text.
+func TestSmokeScriptHelpSurvivesAnExtraHeaderLine(t *testing.T) {
+	body, err := os.ReadFile(smokeScript)
+	if err != nil {
+		t.Fatalf("read %s: %v", smokeScript, err)
+	}
+	lines := strings.SplitN(string(body), "\n", 3)
+	if len(lines) < 3 {
+		t.Fatalf("%s is too short to patch", smokeScript)
+	}
+	patched := lines[0] + "\n# an extra sentence someone added later.\n" + lines[1] + "\n" + lines[2]
+
+	path := filepath.Join(t.TempDir(), "patched-smoke.sh")
+	if writeErr := os.WriteFile(path, []byte(patched), 0o755); writeErr != nil {
+		t.Fatalf("write patched script: %v", writeErr)
+	}
+
+	out, err := exec.Command("bash", path, "--help").CombinedOutput()
+	if err != nil {
+		t.Fatalf("run --help: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"an extra sentence someone added later.",
+		"See docs/cc-upgrade-smoke.md for the full list.",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("--help lost %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(string(out), "set -u") {
+		t.Fatalf("--help ran past the header into the script body\n%s", out)
+	}
+}
+
 func removeString(in []string, drop string) []string {
 	out := make([]string, 0, len(in))
 	for _, s := range in {

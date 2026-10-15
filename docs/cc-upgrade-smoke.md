@@ -78,6 +78,10 @@ holds, and it needs one of three answers:
 | 7 | messaging guard | `~/.claude/settings.json` still denies `SendMessage` and `ListAgents` |
 | 8 | contract names | the installed Claude Code bundle still carries every name our hooks speak |
 
+Check 7 asks whether those two names are in the deny list, not whether
+the deny list is exactly those two names. Any other permission rules you
+keep there are your business and will not turn the run red.
+
 Check 1 is a pair, and the pair is what makes it a test. A cap of one
 token forces the monitor to fire (exit 2), which can only happen if it
 parsed a count of at least one. A huge cap must leave it silent (exit
@@ -163,6 +167,9 @@ any agent calls.
 `scripts_smoke_test.go` builds a complete fake host in a temporary
 directory (stub `spore`, stub Claude Code bundle, stub hooks, stub
 settings) and runs the script against it. One test confirms a healthy
-sandbox exits 0 with no `CHANGED` line. Five more each break exactly one
-mechanism and confirm the script both prints `CHANGED` and exits
-non-zero. Nothing in the suite touches the real host state.
+sandbox exits 0 with no `CHANGED` line. Seven more each break exactly
+one mechanism and confirm the script both prints `CHANGED` and exits
+non-zero. One confirms the opposite direction: an unrelated deny rule in
+the stub settings must leave the run green. A last one patches an extra
+line into the script's header comment and confirms `--help` still prints
+all of it. Nothing in the suite touches the real host state.

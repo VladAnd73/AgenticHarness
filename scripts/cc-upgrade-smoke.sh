@@ -31,7 +31,7 @@
 set -u
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
   exit 0
 fi
 
@@ -178,10 +178,23 @@ else
 fi
 
 say "7. spore's own settings still deny cross-session messaging"
-DENY=$(tr '\n' ' ' <"$SETTINGS" 2>/dev/null |
-  grep -oE '"deny"[[:space:]]*:[[:space:]]*\[[^]]*\]' | head -1 |
-  grep -oE '"[^"]+"' | sed '1d' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
-verdict "permissions.deny" "${DENY:-unreadable}" "SendMessage ListAgents"
+# Membership, not equality: a deny list is free to carry any number of
+# unrelated permission rules. All this check cares about is that the two
+# messaging tools are still in it.
+if [ ! -r "$SETTINGS" ]; then
+  verdict "settings.json" "unreadable" "readable"
+else
+  DENY=$(tr '\n' ' ' <"$SETTINGS" 2>/dev/null |
+    grep -oE '"deny"[[:space:]]*:[[:space:]]*\[[^]]*\]' | head -1 |
+    grep -oE '"[^"]+"' | sed '1d' | tr -d '"' | tr '\n' ' ' | sed 's/ *$//')
+  note "permissions.deny" "${DENY:-empty}"
+  for NAME in SendMessage ListAgents; do
+    case " $DENY " in
+    *" $NAME "*) verdict "denies $NAME" yes yes ;;
+    *) verdict "denies $NAME" no yes ;;
+    esac
+  done
+fi
 INBOUND=$(json_string crossSessionInbound <"$SETTINGS" 2>/dev/null)
 note "crossSessionInbound" "${INBOUND:-unset}"
 
@@ -196,7 +209,13 @@ say "8. Claude Code still ships the names spore's hooks speak"
 #
 # Presence of a string is necessary, not sufficient: it catches a rename,
 # not a change in what the field means.
-WANT_NAMES="hookSpecificOutput additionalContext permissionDecision run_in_background transcript_path ${DENY:-}"
+#
+# The list is this check's own and must stay that way. Deriving it from
+# permissions.deny looks tempting, because the two names below are also
+# denied - but a deny list holds permission RULES like "Bash(curl:*)",
+# which correctly appear nowhere in the bundle. Reusing it turns the
+# first rule anyone adds into a false rename report.
+WANT_NAMES="hookSpecificOutput additionalContext permissionDecision run_in_background transcript_path SendMessage ListAgents"
 BUNDLE_DIR=""
 if [ -n "${CLAUDE_BIN:-}" ] && [ -e "$CLAUDE_BIN" ]; then
   BUNDLE_DIR=$(dirname "$(readlink -f "$CLAUDE_BIN")")
