@@ -203,7 +203,7 @@ in
 
     claudeCodePackage = lib.mkOption {
       type = lib.types.package;
-      defaultText = lib.literalExpression "claude-code.packages.\${system}.default";
+      defaultText = lib.literalExpression "spore.packages.\${system}.claude-code";
       description = ''
         claude-code CLI placed on the unit's PATH so workers spawned
         by the reconciler can invoke `claude` directly.
