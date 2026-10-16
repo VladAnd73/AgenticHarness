@@ -72,6 +72,21 @@ services.spore-fleet.claudeCodePackage = pkgs.claude-code;
 
 Adjust the file and line numbers to your host.
 
+The rebuild commands below say `/etc/nixos#<config>`. `<config>` is the
+attribute name under `nixosConfigurations` in the host's own flake. It is
+often the hostname and it is not required to be, so read the real one off
+the flake before you start rather than assuming:
+
+```sh
+nix eval --impure --raw --expr \
+  'builtins.concatStringsSep " " (builtins.attrNames (builtins.getFlake "/etc/nixos").nixosConfigurations)'
+```
+
+On the machine this runbook was written on that prints `spore-bootstrap`
+while `hostname` prints `nixos`, so `--flake /etc/nixos#nixos` fails
+there. Substitute whatever the command prints wherever `<config>`
+appears.
+
 ### A0. Record what you are rolling back to
 
 ```sh
@@ -91,9 +106,11 @@ From a spore checkout, with an empty task queue:
 scripts/cc-upgrade-smoke.sh > /tmp/cc-smoke-before.txt
 ```
 
-Two side effects are deliberate and expected: check 5 writes a real poke
-into the live coordinator inbox, and check 6 runs a reconcile pass. Keep
-the file. It is the only pre-upgrade reference you will have.
+The script has no side effects outside its own temp directory, which it
+deletes on exit. Check 5 exercises the coordinator-poke write path
+against a throwaway state directory rather than the live inbox, and check
+6 reconciles a throwaway fleet with an empty queue. Keep the file. It is
+the only pre-upgrade reference you will have.
 
 Rollback: none needed, it writes nothing you depend on.
 
@@ -179,19 +196,36 @@ Rollback: `cp flake.lock.bak flake.lock`.
 ### A5. Build without switching, and check the version
 
 ```sh
-nixos-rebuild build --flake /etc/nixos#<hostname>
+nixos-rebuild build --flake /etc/nixos#<config>
 ./result/sw/bin/claude --version
 ```
 
 Expect 2.1.296 or newer. `build` writes `./result` and changes nothing
 about the running system.
 
+This is the step that adds a second Claude Code closure to the machine,
+so budget disk space and download time here and not only in Part B.
+Measured on this host: the pinned build shares not one store path with
+the Claude Code the host runs today. All 31 paths are new, about 349 MB,
+with their own glibc, gcc and OpenSSL underneath. The two stay disjoint
+for as long as the pin and the host's nixpkgs differ, which is the pin
+working as designed rather than a one-off cost.
+
+One fact to have rather than discover: this pin moves claude-code's
+runtime OpenSSL backwards, from 3.6.3 in the closure the host carries
+today to 3.5.8 in the pinned one. The pinned revision is the newer
+nixpkgs of the two; it simply happens to resolve `openssl` to an older
+release than the host's does. Nothing in spore reads that library
+directly and the practical risk is low, but a version going backwards is
+exactly what decoupling two nixpkgs makes possible, and nothing
+downstream will flag it for you.
+
 Rollback: `rm result`.
 
 ### A6. Switch
 
 ```sh
-nixos-rebuild switch --flake /etc/nixos#<hostname>
+nixos-rebuild switch --flake /etc/nixos#<config>
 ```
 
 Rollback, in increasing order of bluntness:
@@ -239,8 +273,8 @@ kernel, systemd and everything else to move.
 cd /etc/nixos
 cp flake.lock flake.lock.bak
 nix flake update nixpkgs
-nixos-rebuild build --flake /etc/nixos#<hostname>
-nixos-rebuild switch --flake /etc/nixos#<hostname>
+nixos-rebuild build --flake /etc/nixos#<config>
+nixos-rebuild switch --flake /etc/nixos#<config>
 ```
 
 What to expect that Part A did not involve: a new kernel, which means a
