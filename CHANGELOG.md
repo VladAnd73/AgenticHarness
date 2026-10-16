@@ -10,9 +10,15 @@
   Claude Code meant moving the kernel, systemd and every other package
   in the same rebuild. The pin currently resolves to 2.1.296. It
   replaces the `sadjow/claude-code-nix` input, which had not been
-  re-locked since August and brought a second nixpkgs evaluation along
-  with it; both package the same official release binary with the same
-  `$out/bin` layout. A new flake check, `claude-code-version`, runs the
+  re-locked since August; both package the same official release binary
+  with the same `$out/bin` layout. The pin is not the cheaper of the
+  two: it carries a second nixpkgs of its own, measured at 209.9 MB
+  against sadjow's 211.7 MB. What changes is who chooses the revision
+  and how much lock the choice costs: three nodes leave spore's lock
+  (`claude-code` and its own `nixpkgs` and `systems`) and one arrives,
+  and the Claude Code version becomes something a spore reviewer picks
+  instead of something a third-party packaging repository picks. A new
+  flake check, `claude-code-version`, runs the
   built binary and fails below the floor. The root `nixpkgs` revision is
   unchanged: it only loses the `_2` suffix in `flake.lock` because the
   node that held the plain name is gone. See `docs/claude-code-pin.md`
