@@ -7,7 +7,18 @@ let
   # other, and neither side would report anything wrong. Taking it from
   # spore means the version is spore's reviewable pin rather than a
   # side effect of this host's nixpkgs revision.
-  claudeCode = sporePkgs.claude-code;
+  #
+  # The fallback is for a locked spore that predates the pin. `spore
+  # infect` rewrites this bundle's `spore` node to the CLI's own commit,
+  # but only when the CLI was built with a recorded commit; a CLI built
+  # by plain `go build` leaves the static node in place, and that node
+  # can name a spore with no `claude-code` output. Without the fallback
+  # the whole bundle then fails to evaluate. With it, the bundle still
+  # builds, both sites still read one binding, and the operator is told
+  # that this host's nixpkgs chose the version instead of spore.
+  claudeCode = sporePkgs.claude-code or (lib.warn
+    "spore input exposes no claude-code, falling back to this bundle's nixpkgs"
+    pkgs.claude-code);
   # Host project list. Written by `spore infect`'s Stage() at infect
   # time with a single entry derived from the operator's --repo, or
   # left as the bundled `{ }` default when infect runs without a repo.

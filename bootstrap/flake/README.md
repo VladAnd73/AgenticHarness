@@ -30,9 +30,13 @@ not pass `--flake`.
 - No users beyond `root`. No services beyond openssh. Designed as the
   thinnest possible substrate that `spore` (or a downstream
   configuration push) can grow on top of.
-- nixpkgs is unfrozen (no `flake.lock` shipped). Each install
-  resolves the latest `nixos-unstable`. Override with `--flake` for
-  pinned reproducibility.
+- A `flake.lock` is shipped, so every install pins the same nixpkgs,
+  disko and home-manager revisions. The `spore` node in it is the one
+  exception: `spore infect` overwrites it with the local CLI's own
+  commit whenever the CLI was built with one. When it was not, the
+  static node stands, and it can name a spore older than the
+  `claude-code` output `configuration.nix` wants; the template falls
+  back to this bundle's nixpkgs for that package and says so.
 
 ## Override
 
