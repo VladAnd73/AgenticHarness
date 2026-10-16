@@ -274,13 +274,18 @@
             claude-code-version = pkgs.runCommand "spore-claude-code-version" { } ''
               min="2.1.296"
               export HOME=$TMPDIR
-              ver="$(${claudeCode}/bin/claude --version \
-                | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"
-              echo "pinned claude-code: $ver (require >= $min)"
+              # stdenv sets `set -e -o pipefail`, so a bare pipeline here
+              # would abort the builder at the assignment and print
+              # nothing at all. Both `|| true` keep the diagnostic below
+              # reachable when the binary fails or changes its format.
+              raw="$(${claudeCode}/bin/claude --version 2>&1 || true)"
+              ver="$(printf '%s\n' "$raw" \
+                | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)"
               if [ -z "$ver" ]; then
-                echo "could not read a version from the pinned claude-code"
+                echo "could not read a version from the pinned claude-code; it printed: $raw"
                 exit 1
               fi
+              echo "pinned claude-code: $ver (require >= $min)"
               if ! printf '%s\n%s\n' "$min" "$ver" | sort -V -C; then
                 echo "pinned claude-code $ver is older than required $min"
                 exit 1
