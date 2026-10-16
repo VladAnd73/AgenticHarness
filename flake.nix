@@ -8,13 +8,21 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    claude-code = {
-      url = "github:sadjow/claude-code-nix";
-    };
+    # Claude Code's version is pinned here, on purpose, separately from
+    # the nixpkgs that builds everything else. It is a second nixpkgs
+    # held at one explicit revision and read for exactly one package.
+    # Without it the version is a side effect of whichever nixpkgs a
+    # host happens to sit on, so moving Claude Code means moving the
+    # kernel and every other package at the same time. Bump this rev on
+    # its own, re-run the smoke check in scripts/cc-upgrade-smoke.sh,
+    # and leave the whole-system nixpkgs alone. See
+    # docs/claude-code-pin.md.
+    nixpkgs-claude-code.url =
+      "github:NixOS/nixpkgs/55bfb4d7437bd4e09ab7cba58a43bd68eb310044";
   };
 
   outputs =
-    { self, nixpkgs, flake-utils, home-manager, claude-code }:
+    { self, nixpkgs, nixpkgs-claude-code, flake-utils, home-manager }:
     let
       # The pinned nixpkgs still packages go1.26.3. Pin the toolchain to
       # the current upstream patch release from its source tarball until
@@ -39,6 +47,16 @@
             inherit system;
             overlays = [ goToolchainOverlay ];
           };
+          # Read from the pinned nixpkgs, not from `pkgs`. nixpkgs
+          # builds Claude Code from Anthropic's own release binary, so
+          # the only thing this revision decides is which release.
+          # The predicate is required because the package is unfree;
+          # it is scoped to this one name so nothing else slips in.
+          claudeCode = (import nixpkgs-claude-code {
+            inherit system;
+            config.allowUnfreePredicate =
+              pkg: pkgs.lib.getName pkg == "claude-code";
+          }).claude-code;
           version = pkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
           commit =
             if self ? rev then self.rev
@@ -95,6 +113,7 @@
         {
           packages = {
             inherit spore shims;
+            claude-code = claudeCode;
             default = spore;
           };
 
@@ -117,9 +136,9 @@
             };
             claude-code = {
               type = "app";
-              program = "${claude-code.packages.${system}.default}/bin/claude";
+              program = "${claudeCode}/bin/claude";
               meta = {
-                description = "claude-code CLI tracked from sadjow/claude-code-nix";
+                description = "claude-code CLI at the revision spore pins";
                 mainProgram = "claude";
               };
             };
@@ -138,7 +157,7 @@
               fzf
               ripgrep
             ]) ++ [
-              claude-code.packages.${system}.default
+              claudeCode
             ];
           };
 
@@ -240,6 +259,35 @@
               fi
               if ! printf '%s\n%s\n' "$min" "$ver" | sort -V -C; then
                 echo "artifact go $ver is older than required $min"
+                exit 1
+              fi
+              touch $out
+            '';
+            # The pin's reason for existing, asserted. Claude Code's
+            # version must be something a reviewer chose, not whatever
+            # fell out of the host's whole-system nixpkgs revision, and
+            # the floor is the first release carrying the hook fixes
+            # spore depends on (docs/claude-code-pin.md). Read the
+            # version off the built binary, not off the derivation's
+            # `version` attribute: the attribute is what the packaging
+            # claims, the binary is what a worker actually runs.
+            claude-code-version = pkgs.runCommand "spore-claude-code-version" { } ''
+              min="2.1.296"
+              export HOME=$TMPDIR
+              # stdenv sets `set -e -o pipefail`, so a bare pipeline here
+              # would abort the builder at the assignment and print
+              # nothing at all. Both `|| true` keep the diagnostic below
+              # reachable when the binary fails or changes its format.
+              raw="$(${claudeCode}/bin/claude --version 2>&1 || true)"
+              ver="$(printf '%s\n' "$raw" \
+                | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)"
+              if [ -z "$ver" ]; then
+                echo "could not read a version from the pinned claude-code; it printed: $raw"
+                exit 1
+              fi
+              echo "pinned claude-code: $ver (require >= $min)"
+              if ! printf '%s\n%s\n' "$min" "$ver" | sort -V -C; then
+                echo "pinned claude-code $ver is older than required $min"
                 exit 1
               fi
               touch $out
@@ -431,7 +479,7 @@
         services.spore-fleet.shimsPackage =
           lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.shims;
         services.spore-fleet.claudeCodePackage =
-          lib.mkDefault claude-code.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
       };
       nixosModules.default = self.nixosModules.spore-fleet;
     };
