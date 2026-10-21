@@ -42,11 +42,18 @@ func WatchInboxAt(inboxDir string) error {
 // (task.InboxDir("coordinator")), so both worker/CLI tells and
 // interactive-session pokes wake an idle coordinator.
 func WatchInboxAtDirs(inboxDirs []string) error {
+	return WatchInboxForSession("", inboxDirs)
+}
+
+// WatchInboxForSession is WatchInboxAtDirs for the Stop hook of Claude
+// session `session`; only an older watcher of the same session is
+// superseded.
+func WatchInboxForSession(session string, inboxDirs []string) error {
 	if len(inboxDirs) > 0 {
 		if err := ensureInbox(inboxDirs[0]); err != nil {
 			return err
 		}
-		defer supersedeWatcher(inboxDirs[0])()
+		defer supersedeWatcher(inboxDirs[0], session)()
 	}
 	return watchInboxAtDirs(inboxDirs, os.Stdout, os.Stderr, defaultWatchOpts())
 }
@@ -120,31 +127,39 @@ func watchInboxAtDirs(inboxDirs []string, stdout, stderr io.Writer, opts watchOp
 	}
 	defer w.Close()
 
-	woke, _ := w.Wait()
-	if woke {
-		opts.sleep(opts.settle)
+	// Not every event is a tell: another session's watcher writes its
+	// pid file here too. Keep waiting until something is claimed.
+	deadline := time.Now().Add(opts.timeout)
+	for {
+		woke, _ := w.Wait()
+		if woke {
+			opts.sleep(opts.settle)
+		}
+		if n, err := drainAll(inboxDirs, stdout); err != nil {
+			return err
+		} else if n > 0 {
+			return ErrWake
+		}
+		if !woke || !time.Now().Before(deadline) {
+			return nil
+		}
 	}
-
-	if n, err := drainAll(inboxDirs, stdout); err != nil {
-		return err
-	} else if n > 0 {
-		return ErrWake
-	}
-	return nil
 }
 
 // drainAll drains each dir in turn (each keeps its own read/ subdir) and
 // returns the total number of files claimed across all of them.
 func drainAll(inboxDirs []string, stdout io.Writer) (int, error) {
-	total := 0
-	for _, dir := range inboxDirs {
-		n, err := drainInbox(dir, stdout)
-		if err != nil {
-			return total, err
+	return gate.claim(func() (int, error) {
+		total := 0
+		for _, dir := range inboxDirs {
+			n, err := drainInbox(dir, stdout)
+			if err != nil {
+				return total, err
+			}
+			total += n
 		}
-		total += n
-	}
-	return total, nil
+		return total, nil
+	})
 }
 
 // drainInbox lists *.json at the top level of inboxDir, atomically
