@@ -177,6 +177,7 @@ again.
 | Symptom | Check | Fix |
 |---|---|---|
 | `ssh spore@<host>` drops you right away | `ssh root@<host> runuser -u spore -- tmux ls` | update spore and rebuild; old `spore-attach` exits when several coordinators run |
+| Coordinator `died on spawn`, though the agent is on PATH | `tmux show -g default-shell` | if it names `spore-attach`: `tmux set -g default-shell "$(command -v bash)"`, then `spore fleet reconcile` |
 | Change not live after a rebuild | `readlink -f /run/current-system /nix/var/nix/profiles/system` | `nixos-rebuild switch --flake /etc/nixos` |
 | `experimental Nix feature 'nix-command' is disabled` | `nix config show experimental-features` | rebuild with the current bundled flake, or pass `--extra-experimental-features 'nix-command flakes'` |
 | `nixos-rebuild --flake` cannot find the config | `nix eval /etc/nixos#nixosConfigurations --apply builtins.attrNames` | use `#spore-bootstrap`, or set `networking.hostName` in `local.nix` |
