@@ -209,7 +209,7 @@
             '';
             go-test = pkgs.runCommand "spore-go-test"
               {
-                nativeBuildInputs = [ pkgs.go pkgs.git pkgs.just ];
+                nativeBuildInputs = [ pkgs.go pkgs.git pkgs.just pkgs.perl ];
               } ''
               cp -r ${./.}/. ./src
               cd src
