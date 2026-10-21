@@ -50,6 +50,9 @@ func TestNewScaffoldsAFreshDirectory(t *testing.T) {
 	if !strings.Contains(res.HostStep, want) {
 		t.Errorf("HostStep lacks %q:\n%s", want, res.HostStep)
 	}
+	if !strings.Contains(res.HostStep, "spore bootstrap") {
+		t.Errorf("HostStep does not point at spore bootstrap, which writes CLAUDE.md:\n%s", res.HostStep)
+	}
 	if !strings.Contains(res.HostStep, "nixos-rebuild switch --flake") {
 		t.Errorf("HostStep lacks the rebuild command:\n%s", res.HostStep)
 	}

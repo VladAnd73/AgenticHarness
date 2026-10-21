@@ -105,12 +105,16 @@ func ensureIgnored(path, line string) (bool, error) {
 }
 
 func hostStep(name, root string) string {
-	return fmt.Sprintf(`Register the project with the host so its coordinator starts on boot:
+	return fmt.Sprintf(`Once the project has a build file (go.mod, package.json, flake.nix, ...),
+write the agent instructions (CLAUDE.md, AGENTS.md):
+  cd %[2]s && spore bootstrap
+
+Register the project with the host so its coordinator starts on boot:
   1. In the host flake's spore-projects.nix (/etc/nixos after spore infect), add:
-       "%s".path = "%s";
+       "%[1]s".path = "%[2]s";
   2. As root on the host:
        nixos-rebuild switch --flake /etc/nixos
 Until then, start the coordinator by hand:
-  cd %s && spore coordinator start
-`, name, root, root)
+  cd %[2]s && spore coordinator start
+`, name, root)
 }
