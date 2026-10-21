@@ -31,7 +31,7 @@
       # GO-2026-5856 (crypto/tls), and 1.26.6 for GO-2026-6218 (net/url),
       # GO-2026-6090 (crypto/tls), GO-2026-5972 (encoding/asn1) and
       # GO-2026-5026 (net/http); 1.26.9 for the net/http, net/textproto
-      # and crypto/tls batch (GO-2026-6603 to GO-2026-6617); 1.26.10 for
+      # and crypto/tls batch (GO-2026-6603, 6605, 6607-6613, 6617); 1.26.10 for
       # GO-2026-6809 (crypto/x509). Keep the spore-toolchain check's
       # `min` in step with this version.
       goToolchainOverlay = final: prev: {
