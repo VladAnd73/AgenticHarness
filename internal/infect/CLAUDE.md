@@ -110,7 +110,9 @@ Only when an action is operator-bound or genuinely ambiguous:
    `services.spore-fleet` with `projects = import ./spore-projects.nix`),
    so they come up at activation; Stage() writes
    `spore-projects.nix` with the single `<basename>` entry before
-   nixos-anywhere reads the flake.
+   nixos-anywhere reads the flake. The staged flake lands in the
+   host's `/etc/nixos` via `--extra-files`; later projects are added
+   there and applied with `nixos-rebuild switch --flake /etc/nixos`.
 4. Locally, open the handover window:
    `tmux new-window -d -n coord "ssh -t -o
    ServerAliveInterval=30 spore@<ip>"`. The forced login shell

@@ -22,8 +22,9 @@ let
   # Host project list. Written by `spore infect`'s Stage() at infect
   # time with a single entry derived from the operator's --repo, or
   # left as the bundled `{ }` default when infect runs without a repo.
-  # Edit-in-place post-install to add more repos; one-line append plus
-  # `sudo nixos-rebuild switch --flake /etc/nixos#spore-bootstrap`.
+  # `spore infect` ships this flake to /etc/nixos. To add a project,
+  # append a line there (`spore project new` prints it), then as root:
+  # `nixos-rebuild switch --flake /etc/nixos`.
   sporeProjects = import ./spore-projects.nix;
   # The login shell runs the shipped spore-attach so there is one copy of
   # the landing logic. sshd starts it with a minimal PATH, so pin the

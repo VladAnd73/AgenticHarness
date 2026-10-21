@@ -7,7 +7,8 @@ not pass `--flake`.
 ## Shape
 
 - `flake.nix` exposes `nixosConfigurations.spore-bootstrap` for
-  `x86_64-linux`. nixpkgs tracks `nixos-unstable`, disko follows
+  `x86_64-linux`, plus the same config under `local.nix`'s hostname so
+  a bare `nixos-rebuild switch --flake /etc/nixos` finds it. nixpkgs tracks `nixos-unstable`, disko follows
   nixpkgs.
 - `configuration.nix` enables `services.openssh` (key-only, no
   password, no root password login), wires GRUB for EFI, and
@@ -20,7 +21,9 @@ not pass `--flake`.
   the per-target hostname plus the post-install root authorized keys.
   `local.nix.example` shows the expected shape; the real file is
   written into a temp staging copy of this directory and never lands
-  in the spore tree.
+  in the spore tree. `spore infect` ships that staged copy to the
+  host's `/etc/nixos` (nixos-anywhere `--extra-files`), so later
+  rebuilds run on the box from there.
 
 ## Limits
 

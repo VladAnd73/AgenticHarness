@@ -22,8 +22,8 @@
 
   outputs =
     inputs@{ nixpkgs, disko, home-manager, spore, ... }:
-    {
-      nixosConfigurations.spore-bootstrap = nixpkgs.lib.nixosSystem {
+    let
+      system = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = { inherit inputs; };
         modules = [
@@ -33,5 +33,14 @@
           ./configuration.nix
         ];
       };
+      # `nixos-rebuild switch --flake /etc/nixos` with no `#attr` looks
+      # up the running hostname, so expose the config under it too.
+      local = if builtins.pathExists ./local.nix then import ./local.nix else { };
+      hostName = if builtins.isAttrs local then local.networking.hostName or null else null;
+    in
+    {
+      nixosConfigurations =
+        { spore-bootstrap = system; }
+        // nixpkgs.lib.optionalAttrs (hostName != null) { ${hostName} = system; };
     };
 }
