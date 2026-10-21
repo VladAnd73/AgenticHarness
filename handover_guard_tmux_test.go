@@ -59,6 +59,15 @@ func TestGuardTmuxDeniesWorkerSessionsOnTheRealServer(t *testing.T) {
 		{"tmux -L probe kill-server", nil, false},
 		{"tmux -u kill-server", nil, true},
 		{"echo tmux new-session is documented", []string{worker}, false},
+		{"/usr/bin/tmux kill-server", nil, true},
+		{"sudo tmux kill-server", nil, true},
+		{"env tmux kill-server", nil, true},
+		{`bash -c "tmux kill-server"`, nil, true},
+		{"tmux kill-ser", nil, true},
+		{"tmux new-s -d -s s", []string{worker}, true},
+		{"tmux -Lx kill-server", nil, false},
+		{"tmux kill-session -t x", nil, false},
+		{"tmux new-window -d -n x", []string{worker}, false},
 	}
 	for _, tc := range cases {
 		denied, reason := runGuardTmux(t, tc.cmd, tc.env...)
