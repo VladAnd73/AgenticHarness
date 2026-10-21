@@ -23,13 +23,17 @@ func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
 
 	session := CoordinatorSessionName(dirs.project)
 
-	if _, err := Reconcile(Config{
+	res, err := Reconcile(Config{
 		TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Reconcile pass 1: %v", err)
 	}
 	if !hasSession(session) {
 		t.Fatalf("expected coordinator session %q after first reconcile", session)
+	}
+	if !res.CoordinatorSpawned {
+		t.Errorf("pass 1 result does not report the coordinator spawn")
 	}
 
 	// Idempotency: a second reconcile must not double-spawn. Capture
@@ -39,10 +43,14 @@ func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
 		t.Fatalf("sessionCreated #1: %v", err)
 	}
 
-	if _, err := Reconcile(Config{
+	res, err = Reconcile(Config{
 		TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Reconcile pass 2: %v", err)
+	}
+	if res.CoordinatorSpawned {
+		t.Errorf("pass 2 reports a coordinator spawn; the session was kept")
 	}
 	if !hasSession(session) {
 		t.Fatalf("expected coordinator session %q after second reconcile", session)
