@@ -31,7 +31,10 @@ const (
 	// under a non-spore session name) respawns itself in place too.
 	// The exec target is the host shim that spore infect installs;
 	// keep this in sync with internal/infect/infect.go install paths.
-	coordinatorRespawnCommand = `tmux respawn-pane -k -t "$(tmux display-message -p '#S'):0" 'exec /usr/local/bin/spore-coordinator-launch'`
+	// The pane command is an argv, not one string, so tmux execs it
+	// instead of running it through a default-shell that may be the
+	// spore-attach login shell.
+	coordinatorRespawnCommand = `tmux respawn-pane -k -t "$(tmux display-message -p '#S'):0" /bin/sh -c 'exec /usr/local/bin/spore-coordinator-launch'`
 )
 
 type Config struct {

@@ -175,8 +175,7 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 		args = append(args, "-e", "SPORE_COORDINATOR_MODEL="+v)
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
-	args = append(args, cmd)
-	out, err := task.TmuxNewSession(args...).CombinedOutput()
+	out, err := task.TmuxNewSession(args, cmd).CombinedOutput()
 	if err != nil {
 		return "", false, fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}

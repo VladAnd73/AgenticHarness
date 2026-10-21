@@ -529,8 +529,7 @@ func ensureSession(tasksDir, slug string) (string, error) {
 		"-e", "SPORE_COORDINATOR_STATE_DIR=" + coordinatorState,
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
-	args = append(args, agent)
-	out, err := TmuxNewSession(args...).CombinedOutput()
+	out, err := TmuxNewSession(args, agent).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}

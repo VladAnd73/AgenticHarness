@@ -338,3 +338,36 @@ func TestEnsureCoordinatorStartsServerWithARealShell(t *testing.T) {
 		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
 	}
 }
+
+// A host whose tmux server already runs with spore-attach as its
+// default-shell must still get a coordinator: setting SHELL on the
+// client only matters when the server starts.
+func TestEnsureCoordinatorSpawnsOnAServerWithABrokenDefaultShell(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	tmpdir, err := os.MkdirTemp("", "sfb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	t.Setenv("TMUX_TMPDIR", tmpdir)
+	loginShell := filepath.Join(t.TempDir(), "spore-attach")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := exec.Command("tmux", "-f", "/dev/null", "new-session", "-d", "-s", "keepalive", "sleep", "600")
+	start.Env = append(os.Environ(), "SHELL="+loginShell)
+	if out, err := start.CombinedOutput(); err != nil {
+		t.Fatalf("start poisoned server: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-server").Run() })
+	t.Setenv("SPORE_COORDINATOR_AGENT", "sleep 30")
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+}

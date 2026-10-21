@@ -163,17 +163,20 @@ func hasSession(name string) bool {
 	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
 }
 
-// TmuxNewSession builds a `tmux new-session` command. When it starts the
-// server, tmux takes $SHELL as default-shell and runs every later session
-// command through it. On a spore host $SHELL is the spore-attach login
-// shell, which treats `-c <cmd>` as an attach mode and exits, so pin it
-// to a real shell here.
-func TmuxNewSession(args ...string) *exec.Cmd {
-	cmd := exec.Command("tmux", append([]string{"new-session"}, args...)...)
+// TmuxNewSession builds `tmux new-session <opts> <shell> -c <command>`.
+// On a spore host $SHELL is the spore-attach login shell, which treats
+// `-c <cmd>` as an attach mode and exits. tmux runs a single-string
+// command through the server's default-shell, taken from $SHELL when the
+// server started, so pass an argv instead: tmux execs that directly, on
+// any server. SHELL is pinned too, for a server this call starts.
+func TmuxNewSession(opts []string, command string) *exec.Cmd {
 	shell, err := exec.LookPath("bash")
 	if err != nil {
 		shell = "/bin/sh"
 	}
+	args := append([]string{"new-session"}, opts...)
+	args = append(args, shell, "-c", command)
+	cmd := exec.Command("tmux", args...)
 	cmd.Env = append(os.Environ(), "SHELL="+shell)
 	return cmd
 }
