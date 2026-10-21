@@ -359,7 +359,7 @@ func TestEnsureCoordinatorSpawnsOnAServerWithABrokenDefaultShell(t *testing.T) {
 	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	start := exec.Command("tmux", "-f", "/dev/null", "new-session", "-d", "-s", "keepalive", "sleep", "600")
+	start := exec.Command("tmux", "-L", testTmuxSocket, "-f", "/dev/null", "new-session", "-d", "-s", "keepalive", "sleep", "600")
 	start.Env = append(os.Environ(), "SHELL="+loginShell)
 	if out, err := start.CombinedOutput(); err != nil {
 		t.Fatalf("start poisoned server: %v: %s", err, out)
