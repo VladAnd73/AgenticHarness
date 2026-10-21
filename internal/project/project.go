@@ -111,11 +111,14 @@ func hostStep(name, root string) string {
 write the agent instructions (CLAUDE.md, AGENTS.md):
   cd %[2]s && spore bootstrap
 
-Register the project with the host so its coordinator starts on boot:
+Register the project with the host so its coordinator starts on boot.
+As root on the host:
   1. In the host flake's spore-projects.nix (/etc/nixos after spore infect), add:
        "%[1]s".path = "%[2]s";
-  2. As root on the host:
+  2. Apply it:
        nixos-rebuild switch --flake /etc/nixos
+     The switch drains every project's running workers, and kills the
+     ones still running at the timeout. Check spore fleet status first.
 Until then, start the coordinator by hand:
   cd %[2]s && spore coordinator start
 `, name, root)

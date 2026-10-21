@@ -56,6 +56,11 @@ func TestNewScaffoldsAFreshDirectory(t *testing.T) {
 	if !strings.Contains(res.HostStep, "nixos-rebuild switch --flake") {
 		t.Errorf("HostStep lacks the rebuild command:\n%s", res.HostStep)
 	}
+	// The graceful pre-switch hook drains, then kills, every project's
+	// workers; the installer used `boot` to dodge it, unwarned.
+	if !strings.Contains(res.HostStep, "drains") || !strings.Contains(res.HostStep, "spore fleet status") {
+		t.Errorf("HostStep does not warn that switch drains running workers:\n%s", res.HostStep)
+	}
 }
 
 func TestNewKeepsExistingFilesAndIsIdempotent(t *testing.T) {

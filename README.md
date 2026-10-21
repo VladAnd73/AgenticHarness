@@ -97,6 +97,10 @@ that registers the project with the host; as root:
 nixos-rebuild switch --flake /etc/nixos
 ```
 
+`switch` drains the running workers of every project, then kills the
+ones still running at the timeout. Run `spore fleet status` as the
+spore user first, and switch when the fleet is idle.
+
 The host's reconciler then starts `spore/<name>/coordinator`. To start
 it before registering:
 
@@ -167,10 +171,11 @@ nixos-rebuild switch --flake /etc/nixos                       # switch, not boot
 readlink -f /run/current-system /nix/var/nix/profiles/system  # must match
 ```
 
-`nixos-rebuild boot` (or `switch-to-configuration boot`) only takes
-effect after a reboot: the profile moves on, the running system does
-not. If the last check prints two different paths, run the `switch`
-again.
+`switch` drains running workers first (see "Add a project").
+`nixos-rebuild boot` (or `switch-to-configuration boot`) avoids that but
+only takes effect after a reboot: the profile moves on, the running
+system does not. If the last check prints two different paths, run the
+`switch` again.
 
 ## Troubleshooting
 
