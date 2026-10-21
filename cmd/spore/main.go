@@ -35,6 +35,7 @@ Commands:
   align      Track and exit the pilot-agent alignment period.
   bootstrap  Walk a fresh project through the stage gates.
   install    Drop the spore skills into a project's .claude/skills/.
+  project    Create a spore-managed project (new <dir>).
   infect     Bootstrap a fresh server with NixOS via nixos-anywhere.
   lint       Run portable lints over the working tree.
   hooks      Install or run claude-code / git hooks.
@@ -156,6 +157,8 @@ func main() {
 			fmt.Fprintln(os.Stderr, "spore bootstrap:", err)
 			os.Exit(1)
 		}
+	case "project":
+		os.Exit(runProject(args))
 	case "install":
 		os.Exit(runInstall(args))
 	case "budget":
