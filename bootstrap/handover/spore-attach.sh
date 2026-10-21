@@ -1,84 +1,134 @@
 #!/usr/bin/env bash
 # Login shell for the spore operator user.
 #
-# Three landing modes:
-#   spore-attach              Attach to the singleton coordinator if
-#                             alive. If the coordinator is missing,
-#                             fall back to a default pilot session
-#                             (so the SSH does not bounce) and print
-#                             how to start it. This is the primary
-#                             operator path; the local handover
-#                             "coord" window relies on it.
-#   spore-attach coord        Same as the no-arg form (explicit).
-#   spore-attach pilot [name] Create / attach to a private pilot
-#                             session at spore/pilot/<name> (defaults
-#                             to "default"). Pilots that share a key
-#                             share a session by name; pilots that
-#                             want their own pane pass distinct names.
+#   ssh -t spore@<host>               The only coordinator if exactly one
+#                                     runs; otherwise the default pilot
+#                                     shell, with the running
+#                                     coordinators listed.
+#   ssh -t spore@<host> <project>     That project's coordinator.
+#   ssh -t spore@<host> coord         Menu of running coordinators.
+#   ssh -t spore@<host> pilot [name]  Private shell session at
+#                                     spore/pilot/<name> (default
+#                                     "default").
 #
-# Wire each pilot up via a per-key forced-command in
-# /home/spore/.ssh/authorized_keys, e.g.
+# Never exits non-zero just because several projects run: that used to
+# lock the operator out of the spore user.
+#
+# Give a secondary pilot a fixed landing with a per-key forced command in
+# /home/spore/.ssh/authorized_keys:
 #   command="/usr/local/bin/spore-attach pilot andrei",no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAA... andrei@laptop
 #
-# The coordinator session is owned by `spore fleet reconcile`; this
-# script never spawns it. From any pilot pane peek at the coordinator:
-#   tmux attach -d -t spore/<project>/coordinator   # take over
-#   tmux attach -r -t spore/<project>/coordinator   # read-only
+# Coordinator sessions are owned by `spore fleet reconcile`; this script
+# never spawns one. From a pilot shell, switch with `Ctrl-b s` or
+#   tmux attach -r -t =spore/<project>/coordinator   # read-only
 #
-# Detach (Ctrl-b d) ends the SSH session because there is no shell
-# fall-through. To do anything privileged, SSH in as root instead.
-set -e
+# Detach (Ctrl-b d) ends the SSH session. For privileged work, SSH in as
+# root instead.
+set -euf
 
-# When sshd applies a per-key forced command it invokes the login
-# shell as `<shell> -c "<command-string>"`. Reshape argv so the rest
-# of this script can treat it like a direct invocation.
+# sshd runs the login shell as `<shell> -c "<command>"`. A forced
+# authorized_keys command repeats this script's path as its first word;
+# a plain `ssh spore@<host> <args>` does not, so only drop the first word
+# when it is this script. -f above keeps the split from globbing.
 if [ "${1:-}" = "-c" ]; then
-    # word-split the forced-command string on purpose
     # shellcheck disable=SC2086
-    set -- $2
-    shift   # drop the leading script path
+    set -- ${2:-}
+    case "${1:-}" in
+        */spore-attach | spore-attach | */spore-attach.sh) shift ;;
+    esac
 fi
 
-mode="${1:-coord}"
+say() { printf 'spore-attach: %s\n' "$@" >&2; }
+
+valid_name() {
+    case "$1" in
+        '' | .* | *[!A-Za-z0-9._-]*) return 1 ;;
+    esac
+}
+
+coordinators() {
+    tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^spore/[^/]+/coordinator$' || true
+}
 
 attach_pilot() {
     name="${1:-default}"
+    if ! valid_name "$name"; then
+        say "invalid pilot name: $name (use letters, digits, . _ -)"
+        exit 2
+    fi
     # Pass `bash -l` as the session command; the spore user's login
     # shell is this script, and tmux would otherwise recurse into it.
     exec tmux new-session -A -s "spore/pilot/${name}" bash -l
 }
 
+attach_session() {
+    exec tmux attach-session -t "=$1"
+}
+
+list_coordinators() {
+    for s in "$@"; do
+        p="${s#spore/}"
+        say "  $s    ssh -t spore@<host> ${p%/coordinator}"
+    done
+}
+
+mode="${1:-}"
+arg="${2:-}"
+# shellcheck disable=SC2046
+set -- $(coordinators)
+
 case "$mode" in
+    '')
+        if [ "$#" -eq 1 ]; then
+            attach_session "$1"
+        fi
+        if [ "$#" -eq 0 ]; then
+            say "no coordinator session running on this host." \
+                "to start one, from this shell run:" \
+                "  spore fleet enable && spore fleet reconcile"
+        else
+            say "$# coordinators running; landing in the pilot shell. Attach one with:"
+            list_coordinators "$@"
+        fi
+        attach_pilot default
+        ;;
     coord)
-        sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep '/coordinator$' || true)
-        n=$(printf '%s' "$sessions" | grep -c . || true)
-        case "$n" in
-            1)
-                exec tmux attach -t "$sessions"
-                ;;
+        case "$#" in
             0)
-                cat >&2 <<'EOF'
-spore-attach: no coordinator session running on this host.
-spore-attach: dropping into a default pilot session so you can recover.
-spore-attach: to start the coordinator, from inside the pane run:
-spore-attach:   spore fleet enable && spore fleet reconcile
-EOF
+                say "no coordinator session running; landing in the pilot shell."
                 attach_pilot default
                 ;;
-            *)
-                echo "spore-attach: multiple coordinator sessions present:" >&2
-                printf '  %s\n' $sessions >&2
-                echo "spore-attach: ssh in as root to reconcile." >&2
-                exit 1
-                ;;
+            1) attach_session "$1" ;;
         esac
+        PS3="coordinator> "
+        select s in "$@" "pilot shell"; do
+            case "$s" in
+                '') continue ;;
+                "pilot shell") attach_pilot default ;;
+                *) attach_session "$s" ;;
+            esac
+        done
+        exit 1
         ;;
     pilot)
-        attach_pilot "${2:-default}"
+        attach_pilot "${arg:-default}"
         ;;
     *)
-        echo "spore-attach: unknown mode: $mode" >&2
-        echo "usage: spore-attach [coord | pilot [<name>]]" >&2
-        exit 2
+        if ! valid_name "$mode"; then
+            say "invalid project name: $mode"
+            exit 2
+        fi
+        for s in "$@"; do
+            if [ "$s" = "spore/$mode/coordinator" ]; then
+                attach_session "$s"
+            fi
+        done
+        say "no coordinator running for project: $mode"
+        if [ "$#" -gt 0 ]; then
+            say "running coordinators:"
+            list_coordinators "$@"
+        fi
+        say "usage: ssh -t spore@<host> [<project> | coord | pilot [<name>]]"
+        exit 1
         ;;
 esac
