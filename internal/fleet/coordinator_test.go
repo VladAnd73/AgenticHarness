@@ -301,3 +301,32 @@ func TestEnsureCoordinatorSeedsBundledRoleWhenRoleFileMissing(t *testing.T) {
 		t.Fatalf("agent first message = %d bytes, want the bundled role (%d bytes)", len(first), len(want))
 	}
 }
+
+// The spore user's $SHELL is spore-attach, and systemd hands it to the
+// reconciler. A tmux server the reconciler starts must not take it as
+// default-shell, or the coordinator's command never runs.
+func TestEnsureCoordinatorStartsServerWithARealShell(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	tmpdir, err := os.MkdirTemp("", "sfs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	t.Setenv("TMUX_TMPDIR", tmpdir)
+	loginShell := filepath.Join(t.TempDir(), "spore-attach")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", loginShell)
+	t.Setenv("SPORE_COORDINATOR_AGENT", "sleep 30")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-server").Run() })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+}

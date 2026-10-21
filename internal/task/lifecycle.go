@@ -519,7 +519,7 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	}
 
 	args := []string{
-		"new-session", "-d",
+		"-d",
 		"-s", session,
 		"-c", worktree,
 		"-e", "SPORE_TASK_SLUG=" + slug,
@@ -530,7 +530,7 @@ func ensureSession(tasksDir, slug string) (string, error) {
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
 	args = append(args, agent)
-	out, err := exec.Command("tmux", args...).CombinedOutput()
+	out, err := TmuxNewSession(args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}

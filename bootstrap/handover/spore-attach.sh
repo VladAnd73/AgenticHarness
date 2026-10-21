@@ -38,6 +38,12 @@ if [ "${1:-}" = "-c" ]; then
     esac
 fi
 
+# A tmux server started from here takes $SHELL (this script) as its
+# default-shell, and the reconciler's coordinator spawn would re-enter
+# it as `spore-attach -c <cmd>` and die.
+SHELL=$(command -v bash)
+export SHELL
+
 say() { printf 'spore-attach: %s\n' "$@" >&2; }
 
 valid_name() {

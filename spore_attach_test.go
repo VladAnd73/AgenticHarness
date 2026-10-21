@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const attachScript = "bootstrap/handover/spore-attach.sh"
@@ -208,4 +209,87 @@ func TestSporeAttachRejectsUnsafeNames(t *testing.T) {
 	if code == 0 || attached != "" {
 		t.Fatalf("exit %d, attached %q; want a rejected name", code, attached)
 	}
+}
+
+// A tmux server inherits its default-shell from $SHELL when it starts,
+// and runs every later session command as `$default-shell -c <cmd>`. The
+// spore user's $SHELL is spore-attach, so a server started from the
+// pilot shell must not keep it, or the reconciler's coordinator spawn
+// re-enters this script and dies.
+func TestSporeAttachPilotServerRunsLaterSessionCommands(t *testing.T) {
+	realTmux, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skipf("tmux not available: %v", err)
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+	root := t.TempDir()
+	label := "spore-attach-shell-test"
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// -f /dev/null keeps a host ~/.tmux.conf from masking the bug.
+	// No terminal under go test: turn the pilot's `new-session -A` into
+	// a detached session so the script still starts the server.
+	shim := "#!" + bash + "\n" +
+		"args=()\n" +
+		"for a in \"$@\"; do if [ \"$a\" = -A ]; then args+=(-d); else args+=(\"$a\"); fi; done\n" +
+		"exec " + realTmux + " -f /dev/null -L " + label + " \"${args[@]}\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(attachScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginShell := filepath.Join(bin, "spore-attach")
+	if err := os.WriteFile(loginShell, src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmpdir, err := os.MkdirTemp("", "sas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	var env []string
+	for _, kv := range os.Environ() {
+		switch strings.SplitN(kv, "=", 2)[0] {
+		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "PATH", "SHELL":
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "TMUX_TMPDIR="+tmpdir, "PATH="+bin+":"+os.Getenv("PATH"), "SHELL="+loginShell)
+	t.Cleanup(func() {
+		cmd := exec.Command(realTmux, "-L", label, "kill-server")
+		cmd.Env = env
+		_ = cmd.Run()
+	})
+
+	login := exec.Command(loginShell, "-c", "pilot")
+	login.Env = env
+	if out, err := login.CombinedOutput(); err != nil {
+		t.Fatalf("pilot login: %v: %s", err, out)
+	}
+
+	marker := filepath.Join(root, "ran")
+	spawn := exec.Command(realTmux, "-L", label, "new-session", "-d", "-s", "spore/alpha/coordinator",
+		"touch "+marker+"; sleep 600")
+	spawn.Env = env
+	if out, err := spawn.CombinedOutput(); err != nil {
+		t.Fatalf("spawn: %v: %s", err, out)
+	}
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	show := exec.Command(realTmux, "-L", label, "show", "-g", "default-shell")
+	show.Env = env
+	got, _ := show.CombinedOutput()
+	t.Fatalf("session command never ran; server %s", strings.TrimSpace(string(got)))
 }

@@ -158,7 +158,7 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 
 	cmd := coordinatorShellCommand(agent, rolePath)
 	args := []string{
-		"new-session", "-d",
+		"-d",
 		"-s", session,
 		"-c", projectRoot,
 		"-e", "SPORE_TASK_SLUG=" + CoordinatorSlug,
@@ -176,7 +176,7 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
 	args = append(args, cmd)
-	out, err := exec.Command("tmux", args...).CombinedOutput()
+	out, err := task.TmuxNewSession(args...).CombinedOutput()
 	if err != nil {
 		return "", false, fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}

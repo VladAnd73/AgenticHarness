@@ -162,3 +162,18 @@ func sessionIdle(name string, now time.Time) (time.Duration, bool) {
 func hasSession(name string) bool {
 	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
 }
+
+// TmuxNewSession builds a `tmux new-session` command. When it starts the
+// server, tmux takes $SHELL as default-shell and runs every later session
+// command through it. On a spore host $SHELL is the spore-attach login
+// shell, which treats `-c <cmd>` as an attach mode and exits, so pin it
+// to a real shell here.
+func TmuxNewSession(args ...string) *exec.Cmd {
+	cmd := exec.Command("tmux", append([]string{"new-session"}, args...)...)
+	shell, err := exec.LookPath("bash")
+	if err != nil {
+		shell = "/bin/sh"
+	}
+	cmd.Env = append(os.Environ(), "SHELL="+shell)
+	return cmd
+}
