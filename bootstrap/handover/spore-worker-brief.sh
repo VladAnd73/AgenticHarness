@@ -4,7 +4,7 @@
 # cwd is the worker's worktree, with SPORE_TASK_SLUG=<slug> in the env.
 #
 # We spawn an INTERACTIVE claude with the brief (tasks/<slug>.md) passed
-# as a positional argument. This matches versality/spore's current
+# as a positional argument. This matches spore's current
 # lifecycle.go spawn shape (claude --dangerously-skip-permissions --
 # "$(cat $SPORE_BRIEF_FILE)") and avoids `claude -p`, which from
 # 2026-06-15 onward is metered against a separate Agent SDK monthly
