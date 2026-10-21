@@ -4,7 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	spore "github.com/versality/spore"
 )
 
 func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
@@ -261,4 +265,39 @@ func sessionCreated(name string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+func TestEnsureCoordinatorSeedsBundledRoleWhenRoleFileMissing(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(CoordinatorRoleEnv, "")
+
+	got := filepath.Join(t.TempDir(), "first-message")
+	agent := filepath.Join(t.TempDir(), "agent")
+	script := "#!/bin/sh\nprintf '%s' \"$1\" > " + got + "\nexec sleep 30\n"
+	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPORE_COORDINATOR_AGENT", agent)
+	t.Cleanup(func() { killSporeSessions(dirs.project) })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+
+	var first []byte
+	for i := 0; i < 50; i++ {
+		if b, err := os.ReadFile(got); err == nil && len(b) > 0 {
+			first = b
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	want := strings.TrimRight(string(spore.BundledCoordinatorRole), "\n")
+	if string(first) != want {
+		t.Fatalf("agent first message = %d bytes, want the bundled role (%d bytes)", len(first), len(want))
+	}
 }

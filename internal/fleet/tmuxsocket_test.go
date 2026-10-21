@@ -23,6 +23,14 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
 		os.Exit(2)
 	}
+	// Most tests spawn `sleep N` as the coordinator agent, which
+	// rejects the bundled role as an extra argument. Point the role at
+	// a missing file so they keep spawning bare; tests that exercise
+	// the role clear this.
+	if err := os.Setenv("SPORE_COORDINATOR_ROLE_FILE", tmpdir+"/no-role.md"); err != nil {
+		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+		os.Exit(2)
+	}
 	_ = os.Unsetenv("TMUX")
 	_ = os.Unsetenv("TMUX_PANE")
 	_ = exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "keepalive", "sleep 86400").Run()

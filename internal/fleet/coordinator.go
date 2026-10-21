@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	spore "github.com/versality/spore"
 	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/task"
 )
@@ -74,7 +75,31 @@ func CoordinatorRolePath(projectRoot string) string {
 		}
 		return filepath.Join(projectRoot, cfg.Brief)
 	}
+	return defaultRolePath(projectRoot)
+}
+
+func defaultRolePath(projectRoot string) string {
 	return filepath.Join(projectRoot, "bootstrap", "coordinator", "role.md")
+}
+
+func nonEmptyFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+// writeBundledRole drops the role embedded in this binary into dir so
+// a project without its own role file still boots a seeded
+// coordinator. Rewritten on every spawn so a spore upgrade reaches the
+// next coordinator without a manual copy.
+func writeBundledRole(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "bundled-role.md")
+	if err := os.WriteFile(path, spore.BundledCoordinatorRole, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // EnsureCoordinator spawns the coordinator tmux session for projectRoot
@@ -84,11 +109,11 @@ func CoordinatorRolePath(projectRoot string) string {
 // session env. The session's command is a small shell snippet that
 // passes the role file's contents as the agent's first positional
 // arg when the file is readable and non-empty (so a default
-// claude-code agent boots with the role as its first user message),
-// and falls back to spawning the agent bare otherwise (so test agents
-// like `sleep 30` and consumers without a role file installed are
-// unaffected). Returns the session name and whether a spawn actually
-// happened.
+// claude-code agent boots with the role as its first user message).
+// When the default in-tree role file is missing, the role embedded in
+// the binary is used instead; an explicit override that points at a
+// missing file spawns the agent bare. Returns the session name and
+// whether a spawn actually happened.
 func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	session := CoordinatorSessionName(projectRoot)
 	if hasSession(session) {
@@ -122,6 +147,13 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	}
 	if err != nil {
 		return "", false, err
+	}
+
+	if rolePath == defaultRolePath(projectRoot) && !nonEmptyFile(rolePath) {
+		rolePath, err = writeBundledRole(filepath.Join(coordinatorState, project))
+		if err != nil {
+			return "", false, err
+		}
 	}
 
 	cmd := coordinatorShellCommand(agent, rolePath)
