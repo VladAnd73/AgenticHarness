@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/versality/spore/internal/fleet"
 	"github.com/versality/spore/internal/hooks"
@@ -172,6 +174,15 @@ func runHooksWatchInbox(args []string) int {
 		return runHooksObserveInbox(wakeSession)
 	}
 	args = rest
+
+	// A newer watcher on the same inbox sends SIGTERM. Exit 0 so
+	// claude-code does not treat the handover as a wake or an error.
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
+	go func() {
+		<-term
+		os.Exit(0)
+	}()
 
 	var err error
 	switch len(args) {

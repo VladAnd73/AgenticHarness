@@ -23,7 +23,7 @@ var ErrWake = errors.New("inbox drained")
 // files to inbox/read/, and returns ErrWake when files were drained.
 // Returns nil on timeout (no files), or a real error on failure.
 func WatchInbox(slug string) error {
-	return watchInboxAt(workerInbox(slug), os.Stdout, os.Stderr, defaultWatchOpts())
+	return WatchInboxAtDirs([]string{workerInbox(slug)})
 }
 
 // WatchInboxAt is the env-driven Stop-hook entry point. It targets
@@ -32,7 +32,7 @@ func WatchInbox(slug string) error {
 // $SPORE_TASK_INBOX, which the consumer harness sets per spawn (rower:
 // $WT_STATE/<slug>/inbox; coordinator: $SKYHELM_STATE_DIR/<project>/inbox).
 func WatchInboxAt(inboxDir string) error {
-	return watchInboxAt(inboxDir, os.Stdout, os.Stderr, defaultWatchOpts())
+	return WatchInboxAtDirs([]string{inboxDir})
 }
 
 // WatchInboxAtDirs is the multi-dir env-driven Stop-hook entry point. A
@@ -42,6 +42,12 @@ func WatchInboxAt(inboxDir string) error {
 // (task.InboxDir("coordinator")), so both worker/CLI tells and
 // interactive-session pokes wake an idle coordinator.
 func WatchInboxAtDirs(inboxDirs []string) error {
+	if len(inboxDirs) > 0 {
+		if err := ensureInbox(inboxDirs[0]); err != nil {
+			return err
+		}
+		defer supersedeWatcher(inboxDirs[0])()
+	}
 	return watchInboxAtDirs(inboxDirs, os.Stdout, os.Stderr, defaultWatchOpts())
 }
 
