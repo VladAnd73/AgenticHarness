@@ -177,6 +177,25 @@ only takes effect after a reboot: the profile moves on, the running
 system does not. If the last check prints two different paths, run the
 `switch` again.
 
+### Hosts installed before the shared login shell
+
+The host flake (`/etc/nixos`, or your own copy) is not part of the
+`spore` input, so a spore update does not change it. If its
+`configuration.nix` defines `sporeAttach` with an inline script, the
+spore user keeps the old login: it exits when several coordinators run,
+and tmux servers it starts take it as their default shell. Replace the
+inline script with the shipped one, then switch:
+
+```nix
+sporeAttach = pkgs.writeShellScriptBin "spore-attach" ''
+  export PATH=${lib.makeBinPath [ pkgs.tmux pkgs.gnugrep pkgs.bashInteractive ]}:$PATH
+  exec ${sporePkgs.shims}/bin/spore-attach "$@"
+'';
+```
+
+Until then, keep `set -g default-shell <path to bash>` in the spore
+user's `~/.tmux.conf`.
+
 ## Troubleshooting
 
 | Symptom | Check | Fix |
