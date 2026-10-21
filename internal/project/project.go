@@ -16,8 +16,10 @@ import (
 )
 
 // validName mirrors valid_name in bootstrap/handover/spore-attach.sh:
-// a name the attach shell refuses can never be reached over ssh.
-var validName = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
+// a name the attach shell refuses can never be reached over ssh. No "."
+// (tmux rewrites it to "_" in session names) and no leading "-" (ssh
+// would read it as an option).
+var validName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
 
 type Result struct {
 	Root     string
@@ -39,7 +41,7 @@ func New(dir string, skills embed.FS, role []byte) (Result, error) {
 	}
 	res := Result{Root: root, Name: filepath.Base(root)}
 	if !validName.MatchString(res.Name) {
-		return res, fmt.Errorf("project name %q: use letters, digits, . _ - (no leading dot)", res.Name)
+		return res, fmt.Errorf("project name %q: use letters, digits, _ - (no dots, no leading -)", res.Name)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return res, err

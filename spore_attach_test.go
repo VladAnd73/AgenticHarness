@@ -205,9 +205,11 @@ func TestSporeAttachPlainSSHArgKeepsTheProject(t *testing.T) {
 func TestSporeAttachRejectsUnsafeNames(t *testing.T) {
 	h := newAttachHost(t)
 
-	attached, _, code := h.run("", "-c", "pilot a:b")
-	if code == 0 || attached != "" {
-		t.Fatalf("exit %d, attached %q; want a rejected name", code, attached)
+	for _, cmd := range []string{"pilot a:b", "pilot my.app", "pilot -x", "my.app", "-x"} {
+		attached, _, code := h.run("", "-c", cmd)
+		if code == 0 || attached != "" {
+			t.Errorf("%q: exit %d, attached %q; want a rejected name", cmd, code, attached)
+		}
 	}
 }
 

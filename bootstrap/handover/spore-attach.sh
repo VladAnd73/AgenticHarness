@@ -46,9 +46,11 @@ export SHELL
 
 say() { printf 'spore-attach: %s\n' "$@" >&2; }
 
+# No "." (tmux turns it into "_" in session names) and no leading "-"
+# (ssh reads it as an option). Keep in sync with internal/project.
 valid_name() {
     case "$1" in
-        '' | .* | *[!A-Za-z0-9._-]*) return 1 ;;
+        '' | -* | *[!A-Za-z0-9_-]*) return 1 ;;
     esac
 }
 
@@ -59,7 +61,7 @@ coordinators() {
 attach_pilot() {
     name="${1:-default}"
     if ! valid_name "$name"; then
-        say "invalid pilot name: $name (use letters, digits, . _ -)"
+        say "invalid pilot name: $name (use letters, digits, _ -; no leading -)"
         exit 2
     fi
     # Pass `bash -l` as the session command; the spore user's login

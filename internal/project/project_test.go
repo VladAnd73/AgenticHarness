@@ -87,10 +87,14 @@ func TestNewKeepsExistingFilesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// tmux rewrites "." to "_" in session names, so spore/my.app/coordinator
+// can never be found again; a leading "-" reads as an ssh option.
 func TestNewRejectsNamesTheAttachShellCannotTarget(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "has space")
-	if _, err := New(dir, spore.BundledSkills, spore.BundledCoordinatorRole); err == nil {
-		t.Fatal("New accepted a project name with a space")
+	for _, name := range []string{"has space", "my.app", "-x"} {
+		dir := filepath.Join(t.TempDir(), name)
+		if _, err := New(dir, spore.BundledSkills, spore.BundledCoordinatorRole); err == nil {
+			t.Errorf("New accepted project name %q", name)
+		}
 	}
 }
 
