@@ -41,6 +41,9 @@ in
     ./disk-config.nix
   ] ++ lib.optional (builtins.pathExists ./local.nix) ./local.nix;
 
+  # Rebuilds on the box and agents both run flake commands.
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
   nixpkgs.config.allowUnfreePredicate =
     pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
 
@@ -80,6 +83,7 @@ in
     claudeCode
   ] ++ (with pkgs; [
     codex
+    gh
     git
     rsync
     curl
