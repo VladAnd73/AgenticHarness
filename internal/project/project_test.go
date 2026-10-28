@@ -1,6 +1,7 @@
 package project
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,4 +111,49 @@ func hasLine(s, line string) bool {
 		}
 	}
 	return false
+}
+
+// The host step is copy-pasted into a shell and into spore-projects.nix,
+// so a path with a space, a quote or ${ must come out quoted for both.
+func TestNewHostStepQuotesAnOddPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), `my "odd" ${dir} \x`, "proj")
+	res, err := New(dir, spore.BundledSkills, spore.BundledCoordinatorRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cds, nixLines int
+	for _, line := range strings.Split(res.HostStep, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "cd "):
+			cds++
+			if out, err := exec.Command("bash", "-n", "-c", line).CombinedOutput(); err != nil {
+				t.Errorf("bash -n %q: %v: %s", line, err, out)
+				continue
+			}
+			script := `cd() { printf '%s' "$1"; }; spore() { :; }; ` + line
+			out, err := exec.Command("bash", "-c", script).Output()
+			if err != nil || string(out) != res.Root {
+				t.Errorf("%q cds to %q, want %q (%v)", line, out, res.Root, err)
+			}
+		case strings.Contains(line, ".path = "):
+			nixLines++
+			if _, err := exec.LookPath("nix-instantiate"); err != nil {
+				continue
+			}
+			expr := "{ " + line + ` }."proj".path`
+			out, err := exec.Command("nix-instantiate", "--eval", "--json", "-E", expr).CombinedOutput()
+			if err != nil {
+				t.Errorf("nix-instantiate %q: %v: %s", expr, err, out)
+				continue
+			}
+			var got string
+			if err := json.Unmarshal(out, &got); err != nil || got != res.Root {
+				t.Errorf("nix line %q evaluates to %s, want %q", line, out, res.Root)
+			}
+		}
+	}
+	if cds == 0 || nixLines == 0 {
+		t.Fatalf("host step has %d cd lines and %d nix lines:\n%s", cds, nixLines, res.HostStep)
+	}
 }

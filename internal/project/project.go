@@ -109,7 +109,7 @@ func ensureIgnored(path, line string) (bool, error) {
 func hostStep(name, root string) string {
 	return fmt.Sprintf(`Once the project has a build file (go.mod, package.json, flake.nix, ...),
 write the agent instructions (CLAUDE.md, AGENTS.md):
-  cd %[2]s && spore bootstrap
+  cd %[3]s && spore bootstrap
 
 Register the project with the host so its coordinator starts on boot.
 As root on the host:
@@ -120,6 +120,21 @@ As root on the host:
      The switch drains every project's running workers, and kills the
      ones still running at the timeout. Check spore fleet status first.
 Until then, start the coordinator by hand:
-  cd %[2]s && spore coordinator start
-`, name, root)
+  cd %[3]s && spore coordinator start
+`, name, nixString(root), shellQuote(root))
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+// shellQuote leaves a plain path bare so the common case reads cleanly.
+func shellQuote(s string) string {
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// nixString escapes s for the inside of a Nix "..." string.
+func nixString(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "${", `\${`).Replace(s)
 }
