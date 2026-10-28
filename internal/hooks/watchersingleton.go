@@ -13,26 +13,63 @@ import (
 
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
-// watcherPidName keys the pid file on the Claude session. Any claude
-// started inside an agent's tmux session inherits SPORE_TASK_INBOX, so
-// keying on the inbox alone let a scratch session stop the agent's
-// watcher. Without a usable session id it falls back to one file per
-// inbox.
-func watcherPidName(session string) string {
-	if !sessionIDPattern.MatchString(session) {
-		return ".watcher.pid"
+// watcherDir holds the pid files. It sits below the inbox because
+// inotify watches the inbox top level: a pid file written there would
+// wake every other watcher on the inbox.
+const watcherDir = ".watchers"
+
+// WatcherKey names the agent session a watcher belongs to, so a newer
+// watcher only supersedes one of its own session. Any claude started
+// inside an agent's tmux session inherits SPORE_TASK_INBOX, so keying
+// on the inbox alone let a scratch session stop the agent's watcher.
+// stdinSession is the Stop hook's session_id. Without it the watcher
+// falls back to CLAUDE_CODE_SESSION_ID, then to the tmux pane, which
+// holds one agent at a time. Empty means no identity: the watcher then
+// supersedes nothing rather than risk stopping another session's.
+func WatcherKey(stdinSession string) string {
+	if sessionIDPattern.MatchString(stdinSession) {
+		return stdinSession
 	}
-	return ".watcher." + session + ".pid"
+	if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); sessionIDPattern.MatchString(s) {
+		return s
+	}
+	if p := "pane-" + strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%"); p != "pane-" && sessionIDPattern.MatchString(p) {
+		return p
+	}
+	return ""
+}
+
+var (
+	releaseMu  sync.Mutex
+	releasePid = func() {}
+)
+
+// ReleaseWatcher drops this process's pid file. The SIGTERM path calls
+// it before os.Exit, which skips deferred calls.
+func ReleaseWatcher() {
+	releaseMu.Lock()
+	defer releaseMu.Unlock()
+	releasePid()
+	releasePid = func() {}
 }
 
 // supersedeWatcher makes the caller the only Stop-hook watcher for this
 // session on inboxDir. claude-code spawns a new asyncRewake watcher at
 // the end of every turn and never reaps the previous one, so without
 // this they pile up for the full timeout. The older watcher gets
-// SIGTERM; see MayExitOnSupersede for how it answers. The returned func
-// drops the pid file if it still names this process.
-func supersedeWatcher(inboxDir, session string) func() {
-	path := filepath.Join(inboxDir, watcherPidName(session))
+// SIGTERM; see MayExitOnSupersede for how it answers. It also sweeps
+// pid files whose watcher is gone. The returned func drops the pid file
+// if it still names this process.
+func supersedeWatcher(inboxDir, key string) func() {
+	sweepDeadWatchers(inboxDir)
+	if key == "" {
+		return func() {}
+	}
+	dir := filepath.Join(inboxDir, watcherDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return func() {}
+	}
+	path := filepath.Join(dir, key+".pid")
 	self := os.Getpid()
 	selfStart, ok := procStartTime(self)
 	if !ok {
@@ -56,10 +93,34 @@ func supersedeWatcher(inboxDir, session string) func() {
 		_ = os.Remove(tmp)
 		return func() {}
 	}
-	return func() {
+	release := func() {
 		if b, err := os.ReadFile(path); err == nil && string(b) == record {
 			_ = os.Remove(path)
 		}
+	}
+	releaseMu.Lock()
+	releasePid = release
+	releaseMu.Unlock()
+	return ReleaseWatcher
+}
+
+// sweepDeadWatchers removes pid files whose process is gone, including
+// the top-level ones older spore releases wrote. A watcher killed hard
+// never removes its own.
+func sweepDeadWatchers(inboxDir string) {
+	top, _ := filepath.Glob(filepath.Join(inboxDir, ".watcher*.pid"))
+	sub, _ := filepath.Glob(filepath.Join(inboxDir, watcherDir, "*.pid"))
+	for _, p := range append(top, sub...) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if pid, start, ok := parsePidFile(b); ok {
+			if cur, ok := procStartTime(pid); ok && cur == start {
+				continue
+			}
+		}
+		_ = os.Remove(p)
 	}
 }
 

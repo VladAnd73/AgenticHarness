@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -31,7 +32,8 @@ func buildSporeBin(t *testing.T) string {
 func watchInboxEnv(inbox string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "SPORE_") || strings.HasPrefix(kv, "WT_") {
+		if strings.HasPrefix(kv, "SPORE_") || strings.HasPrefix(kv, "WT_") ||
+			strings.HasPrefix(kv, "CLAUDE_CODE_SESSION_ID=") || strings.HasPrefix(kv, "TMUX_PANE=") {
 			continue
 		}
 		env = append(env, kv)
@@ -43,9 +45,14 @@ func watchInboxEnv(inbox string) []string {
 // JSON, with the Claude session id, arrives on stdin.
 func startWatcher(t *testing.T, bin string, env []string, session string) *watcherProc {
 	t.Helper()
+	return startWatcherWithInput(t, bin, env, `{"hook_event_name":"Stop","session_id":"`+session+`"}`)
+}
+
+func startWatcherWithInput(t *testing.T, bin string, env []string, input string) *watcherProc {
+	t.Helper()
 	cmd := exec.Command(bin, "hooks", "watch-inbox")
 	cmd.Env = env
-	cmd.Stdin = strings.NewReader(`{"hook_event_name":"Stop","session_id":"` + session + `"}`)
+	cmd.Stdin = strings.NewReader(input)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -129,5 +136,55 @@ func TestWatchInboxIgnoresAStalePidFile(t *testing.T) {
 
 	if !other.running(t, time.Second) {
 		t.Fatalf("a stale pid file got an unrelated watcher killed: %v", <-other.done)
+	}
+}
+
+// Codex, a slow stdin and older hook wiring give no session_id. Two such
+// sessions on one inbox used to share one pid file and stop each
+// other's watcher.
+func TestWatchInboxSessionsWithoutSessionIDKeepTheirWatchers(t *testing.T) {
+	bin := buildSporeBin(t)
+	for _, tc := range []struct{ name, a, b string }{
+		{"two panes", "TMUX_PANE=%1", "TMUX_PANE=%2"},
+		{"no identity at all", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := watchInboxEnv(filepath.Join(t.TempDir(), "inbox"))
+			first := startWatcherWithInput(t, bin, append(env, tc.a), "")
+			second := startWatcherWithInput(t, bin, append(env, tc.b), "")
+			if !first.running(t, time.Second) {
+				t.Fatalf("the first session's watcher was stopped: %v", <-first.done)
+			}
+			if !second.running(t, 100*time.Millisecond) {
+				t.Fatalf("the second session's watcher exited: %v", <-second.done)
+			}
+		})
+	}
+}
+
+// A watcher stopped by claude-code (SIGTERM) must not leave its pid
+// file behind; one per session piled up in every inbox.
+func TestWatchInboxRemovesItsPidFileOnSIGTERM(t *testing.T) {
+	bin := buildSporeBin(t)
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	w := startWatcher(t, bin, watchInboxEnv(inbox), "session-x")
+	pidFiles := func() []string {
+		a, _ := filepath.Glob(filepath.Join(inbox, ".watcher*.pid"))
+		b, _ := filepath.Glob(filepath.Join(inbox, ".watchers", "*"))
+		return append(a, b...)
+	}
+	if len(pidFiles()) == 0 {
+		t.Fatal("the running watcher wrote no pid file")
+	}
+	if err := w.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-w.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher ignored SIGTERM")
+	}
+	if left := pidFiles(); len(left) > 0 {
+		t.Fatalf("pid files left after exit: %v", left)
 	}
 }

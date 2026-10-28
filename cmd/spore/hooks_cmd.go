@@ -184,6 +184,7 @@ func runHooksWatchInbox(args []string) int {
 	go func() {
 		<-term
 		if hooks.MayExitOnSupersede() {
+			hooks.ReleaseWatcher()
 			os.Exit(0)
 		}
 	}()
@@ -199,9 +200,9 @@ func runHooksWatchInbox(args []string) int {
 			// the hook produces no stderr noise.
 			return 0
 		}
-		err = hooks.WatchInboxForSession(stopHookSessionID(os.Stdin), dirs)
+		err = hooks.WatchInboxForSession(hooks.WatcherKey(stopHookSessionID(os.Stdin)), dirs)
 	case 1:
-		err = hooks.WatchInbox(args[0])
+		err = hooks.WatchInboxSlugForSession(hooks.WatcherKey(stopHookSessionID(os.Stdin)), args[0])
 	default:
 		fmt.Fprintln(os.Stderr, "usage: spore hooks watch-inbox [slug]")
 		return 2

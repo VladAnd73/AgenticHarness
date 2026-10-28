@@ -26,6 +26,12 @@ func WatchInbox(slug string) error {
 	return WatchInboxAtDirs([]string{workerInbox(slug)})
 }
 
+// WatchInboxSlugForSession is WatchInbox with the singleton of
+// WatchInboxForSession.
+func WatchInboxSlugForSession(key, slug string) error {
+	return WatchInboxForSession(key, []string{workerInbox(slug)})
+}
+
 // WatchInboxAt is the env-driven Stop-hook entry point. It targets
 // inboxDir directly instead of computing it from a slug, so callers
 // like `spore hooks watch-inbox` (no positional) can pass
@@ -45,15 +51,15 @@ func WatchInboxAtDirs(inboxDirs []string) error {
 	return WatchInboxForSession("", inboxDirs)
 }
 
-// WatchInboxForSession is WatchInboxAtDirs for the Stop hook of Claude
-// session `session`; only an older watcher of the same session is
-// superseded.
-func WatchInboxForSession(session string, inboxDirs []string) error {
+// WatchInboxForSession is WatchInboxAtDirs for the Stop hook of the
+// agent session `key` (see WatcherKey); only an older watcher of the
+// same session is superseded.
+func WatchInboxForSession(key string, inboxDirs []string) error {
 	if len(inboxDirs) > 0 {
 		if err := ensureInbox(inboxDirs[0]); err != nil {
 			return err
 		}
-		defer supersedeWatcher(inboxDirs[0], session)()
+		defer supersedeWatcher(inboxDirs[0], key)()
 	}
 	return watchInboxAtDirs(inboxDirs, os.Stdout, os.Stderr, defaultWatchOpts())
 }
@@ -274,7 +280,7 @@ func wtStateDir() string {
 }
 
 func ensureInbox(inbox string) error {
-	for _, sub := range []string{"", ".tmp", "read", pendingSubdir} {
+	for _, sub := range []string{"", ".tmp", "read", pendingSubdir, watcherDir} {
 		if err := os.MkdirAll(filepath.Join(inbox, sub), 0o755); err != nil {
 			return err
 		}

@@ -3,7 +3,10 @@ package hooks
 import (
 	"bytes"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,15 +41,77 @@ func TestHandoverGateBlocksClaimsAfterRelease(t *testing.T) {
 	}
 }
 
-func TestWatcherPidFileIsPerSession(t *testing.T) {
-	for _, tc := range []struct{ session, want string }{
-		{"0b6c1e2a-77f0-4c55-9d36-1c0f3c2b9a10", ".watcher.0b6c1e2a-77f0-4c55-9d36-1c0f3c2b9a10.pid"},
-		{"", ".watcher.pid"},
-		{"../../etc", ".watcher.pid"},
+func TestWatcherKeyFallsBackToTheAgentsIdentity(t *testing.T) {
+	for _, tc := range []struct{ stdin, envSession, pane, want string }{
+		{"0b6c1e2a-77f0-4c55-9d36-1c0f3c2b9a10", "other", "%3", "0b6c1e2a-77f0-4c55-9d36-1c0f3c2b9a10"},
+		{"", "env-session", "%3", "env-session"},
+		{"", "", "%3", "pane-3"},
+		{"../../etc", "", "", ""},
+		{"", "", "", ""},
 	} {
-		if got := watcherPidName(tc.session); got != tc.want {
-			t.Errorf("watcherPidName(%q) = %q, want %q", tc.session, got, tc.want)
+		t.Setenv("CLAUDE_CODE_SESSION_ID", tc.envSession)
+		t.Setenv("TMUX_PANE", tc.pane)
+		if got := WatcherKey(tc.stdin); got != tc.want {
+			t.Errorf("WatcherKey(%q) with session env %q pane %q = %q, want %q", tc.stdin, tc.envSession, tc.pane, got, tc.want)
 		}
+	}
+}
+
+// ack.go keeps its records out of the inbox top level because inotify
+// watches it. A watcher's pid file must stay out of it too.
+func TestWatcherPidFileDoesNotWakeOtherWatchers(t *testing.T) {
+	inbox := t.TempDir()
+	if err := ensureInbox(inbox); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WATCH_TIMEOUT", "1")
+	w, err := initPlatformWatcher([]string{inbox})
+	if err != nil {
+		t.Skipf("no inotify: %v", err)
+	}
+	defer w.Close()
+
+	release := supersedeWatcher(inbox, "session-b")
+	defer release()
+
+	if woke, _ := w.Wait(); woke {
+		t.Fatal("writing a pid file woke another watcher on the inbox")
+	}
+}
+
+// A watcher killed hard never removes its pid file. The next watcher on
+// the inbox sweeps files whose process is gone.
+func TestWatcherSweepsPidFilesOfDeadWatchers(t *testing.T) {
+	inbox := t.TempDir()
+	if err := ensureInbox(inbox); err != nil {
+		t.Fatal(err)
+	}
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	record := []byte(strconv.Itoa(dead.Process.Pid) + " 1\n")
+	stale := []string{
+		filepath.Join(inbox, watcherDir, "gone-session.pid"),
+		filepath.Join(inbox, ".watcher.gone-session.pid"),
+		filepath.Join(inbox, ".watcher.pid"),
+	}
+	for _, p := range stale {
+		if err := os.WriteFile(p, record, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	release := supersedeWatcher(inbox, "session-b")
+	defer release()
+
+	for _, p := range stale {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("stale pid file %s survived", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(inbox, watcherDir, "session-b.pid")); err != nil {
+		t.Errorf("own pid file missing: %v", err)
 	}
 }
 
