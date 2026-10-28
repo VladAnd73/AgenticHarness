@@ -7,9 +7,10 @@ not pass `--flake`.
 ## Shape
 
 - `flake.nix` exposes `nixosConfigurations.spore-bootstrap` for
-  `x86_64-linux`, plus the same config under `local.nix`'s hostname so
-  a bare `nixos-rebuild switch --flake /etc/nixos` finds it. nixpkgs tracks `nixos-unstable`, disko follows
-  nixpkgs.
+  `x86_64-linux`, plus the same config under its evaluated
+  `networking.hostName` (set in `local.nix`, plain set or module
+  function) so a bare `nixos-rebuild switch --flake /etc/nixos` finds
+  it. nixpkgs tracks `nixos-unstable`, disko follows nixpkgs.
 - `configuration.nix` enables `services.openssh` (key-only, no
   password, no root password login), wires GRUB for EFI, and
   imports the disko module plus a generated `local.nix` (see below).

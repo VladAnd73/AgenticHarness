@@ -35,12 +35,13 @@
       };
       # `nixos-rebuild switch --flake /etc/nixos` with no `#attr` looks
       # up the running hostname, so expose the config under it too.
-      local = if builtins.pathExists ./local.nix then import ./local.nix else { };
-      hostName = if builtins.isAttrs local then local.networking.hostName or null else null;
+      # Read it from the evaluated config, not by importing local.nix:
+      # that also works when local.nix is a module function.
+      hostName = system.config.networking.hostName;
     in
     {
       nixosConfigurations =
         { spore-bootstrap = system; }
-        // nixpkgs.lib.optionalAttrs (hostName != null) { ${hostName} = system; };
+        // nixpkgs.lib.optionalAttrs (hostName != "") { ${hostName} = system; };
     };
 }
