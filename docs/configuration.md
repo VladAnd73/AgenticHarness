@@ -105,3 +105,27 @@ read-only options so a colmena `deployment.preActivation` /
 `postActivation` hook can drive the same drain remotely. Set
 `gracefulDeploy.enable = false` for one-off worker tiers whose
 tasks should never see a wrap-up signal.
+
+## Agent session shell
+
+spore starts coordinator and worker sessions as
+`tmux new-session ... <bash> -c '<command>'`, with `bash` looked up on
+`PATH` (falling back to `/bin/sh`). The tokenmonitor's
+`respawn-pane` runs `/bin/sh -c '<command>'` the same way. tmux execs
+that argv directly. Before this, tmux ran the command string through
+the server's `default-shell`, which it takes from `$SHELL` when the
+server starts. On a spore host that was the `spore-attach` login shell,
+and every spawn died.
+
+What changed for a downstream project:
+
+- `SPORE_AGENT_BINARY`, `SPORE_COORDINATOR_AGENT` and the spawn
+  command are parsed by bash, not by your `default-shell`. Write them
+  in POSIX/bash syntax. fish- or zsh-only syntax fails.
+- Files your own shell reads for every `-c` run, such as zsh's
+  `~/.zshenv`, no longer apply to agent sessions. Put the environment
+  an agent needs in the project's `agent.env` (see
+  [agent-env.md](agent-env.md)) or the systemd unit instead.
+- tmux's `default-command` option does not apply to these sessions.
+- A tmux server that spore itself starts gets `SHELL=<bash>`, so its
+  `default-shell` is bash. Servers started elsewhere keep theirs.
