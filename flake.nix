@@ -107,6 +107,7 @@
             install -m 0755 $src/spore-with-secrets.sh       $out/bin/spore-with-secrets
             install -m 0755 $src/hooks/block-bg-bash.pl      $out/share/spore/hooks/block-bg-bash.pl
             install -m 0755 $src/hooks/load-state-md.pl      $out/share/spore/hooks/load-state-md.pl
+            install -m 0755 $src/hooks/guard-tmux.pl         $out/share/spore/hooks/guard-tmux.pl
             install -m 0644 $src/settings.json               $out/share/spore/settings.json
             install -m 0644 $src/systemd/spore-fleet-reconcile.service $out/share/spore/systemd/spore-fleet-reconcile.service
             install -m 0644 $src/systemd/spore-fleet-reconcile.timer   $out/share/spore/systemd/spore-fleet-reconcile.timer
@@ -294,8 +295,16 @@
               fi
               touch $out
             '';
-            shims-layout = pkgs.runCommand "spore-shims-layout" { } ''
+            shims-layout = pkgs.runCommand "spore-shims-layout" { nativeBuildInputs = [ pkgs.jq ]; } ''
               fail=0
+              # Every hook script settings.json runs must ship executable.
+              for h in $(jq -r '.. | .command? // empty' ${shims}/share/spore/settings.json \
+                  | grep -o '/\.claude/hooks/[^ ]*' | sed 's|.*/||'); do
+                if [ ! -x "${shims}/share/spore/hooks/$h" ]; then
+                  echo "settings.json runs hooks/$h, which the shims package does not ship"
+                  fail=1
+                fi
+              done
               for f in \
                 bin/spore-attach \
                 bin/spore-coordinator-launch \
