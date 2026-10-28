@@ -275,7 +275,21 @@ func sessionCreated(name string) (string, error) {
 	return string(out), nil
 }
 
-func TestEnsureCoordinatorSeedsBundledRoleWhenRoleFileMissing(t *testing.T) {
+// waitForFile polls path until it holds bytes or ~5s pass.
+func waitForFile(path string) []byte {
+	for i := 0; i < 50; i++ {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+			return b
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
+}
+
+// A downstream SPORE_COORDINATOR_AGENT wrapper may reject arguments.
+// Before the bundled-role fallback, a project without role.md exec'd it
+// with none; it must still get none.
+func TestEnsureCoordinatorBundledRoleGivesACustomAgentNoArgs(t *testing.T) {
 	requireToolchain(t)
 
 	dirs := newTestDirs(t)
@@ -283,9 +297,11 @@ func TestEnsureCoordinatorSeedsBundledRoleWhenRoleFileMissing(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv(CoordinatorRoleEnv, "")
 
-	got := filepath.Join(t.TempDir(), "first-message")
-	agent := filepath.Join(t.TempDir(), "agent")
-	script := "#!/bin/sh\nprintf '%s' \"$1\" > " + got + "\nexec sleep 30\n"
+	out := t.TempDir()
+	agent := filepath.Join(t.TempDir(), "strict-launcher")
+	script := "#!/bin/sh\necho $# > " + out + "/argc\n" +
+		"printf '%s' \"$SPORE_COORDINATOR_ROLE\" > " + out + "/role\n" +
+		"[ $# -eq 0 ] || exit 64\nexec sleep 30\n"
 	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -295,15 +311,42 @@ func TestEnsureCoordinatorSeedsBundledRoleWhenRoleFileMissing(t *testing.T) {
 	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
 		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
 	}
-
-	var first []byte
-	for i := 0; i < 50; i++ {
-		if b, err := os.ReadFile(got); err == nil && len(b) > 0 {
-			first = b
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
+	if got := strings.TrimSpace(string(waitForFile(filepath.Join(out, "argc")))); got != "0" {
+		t.Fatalf("custom agent got %q args, want 0", got)
 	}
+	rolePath := string(waitForFile(filepath.Join(out, "role")))
+	role, err := os.ReadFile(rolePath)
+	if err != nil || string(role) != string(spore.BundledCoordinatorRole) {
+		t.Fatalf("SPORE_COORDINATOR_ROLE=%q does not hold the bundled role: %v", rolePath, err)
+	}
+	if !CoordinatorAlive(dirs.project) {
+		t.Fatal("coordinator session did not survive")
+	}
+}
+
+// Bare claude has no launcher to read $SPORE_COORDINATOR_ROLE, so it
+// still gets the bundled role as its first message.
+func TestEnsureCoordinatorBundledRoleIsClaudesFirstMessage(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(CoordinatorRoleEnv, "")
+
+	got := filepath.Join(t.TempDir(), "first-message")
+	agent := filepath.Join(t.TempDir(), "claude")
+	script := "#!/bin/sh\neval \"last=\\${$#}\"\nprintf '%s' \"$last\" > " + got + "\nexec sleep 30\n"
+	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPORE_COORDINATOR_AGENT", agent+" --dangerously-skip-permissions")
+	t.Cleanup(func() { killSporeSessions(dirs.project) })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+	first := waitForFile(got)
 	want := strings.TrimRight(string(spore.BundledCoordinatorRole), "\n")
 	if string(first) != want {
 		t.Fatalf("agent first message = %d bytes, want the bundled role (%d bytes)", len(first), len(want))

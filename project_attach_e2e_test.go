@@ -26,7 +26,7 @@ func TestNewProjectsCoordinatorsAndAttachEndToEnd(t *testing.T) {
 	if err := os.MkdirAll(seen, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	agent := filepath.Join(root, "agent")
+	agent := filepath.Join(root, "claude")
 	script := "#!/bin/sh\nprintf '%s' \"$1\" > " + seen + "/$(basename \"$PWD\")\nexec sleep 600\n"
 	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

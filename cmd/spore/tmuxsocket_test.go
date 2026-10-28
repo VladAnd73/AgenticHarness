@@ -25,12 +25,6 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Unsetenv("TMUX")
 	_ = os.Unsetenv("TMUX_PANE")
-	// Test coordinators run `sleep N`, which must spawn bare: without
-	// this the bundled role is passed to sleep as an extra argument.
-	if err := os.Setenv("SPORE_COORDINATOR_ROLE_FILE", tmpdir+"/no-role.md"); err != nil {
-		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
-		os.Exit(2)
-	}
 	_ = exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "keepalive", "sleep 86400").Run()
 	code := m.Run()
 	_ = exec.Command("tmux", "-L", testTmuxSocket, "kill-server").Run()
