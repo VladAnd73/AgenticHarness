@@ -70,6 +70,8 @@ func supersedeWatcher(inboxDir, key string) func() {
 		return func() {}
 	}
 	path := filepath.Join(dir, key+".pid")
+	unlock := lockWatchers(dir)
+	defer unlock()
 	self := os.Getpid()
 	selfStart, ok := procStartTime(self)
 	if !ok {
@@ -94,6 +96,7 @@ func supersedeWatcher(inboxDir, key string) func() {
 		return func() {}
 	}
 	release := func() {
+		defer lockWatchers(dir)()
 		if b, err := os.ReadFile(path); err == nil && string(b) == record {
 			_ = os.Remove(path)
 		}
@@ -102,6 +105,22 @@ func supersedeWatcher(inboxDir, key string) func() {
 	releasePid = release
 	releaseMu.Unlock()
 	return ReleaseWatcher
+}
+
+// lockWatchers serialises pid-file writes against releases. Without it
+// a superseded watcher's SIGTERM release could read its own record, then
+// remove the file its successor renamed in a moment later, leaving the
+// successor unfindable by the next watcher.
+func lockWatchers(dir string) func() {
+	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return func() {}
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return func() {}
+	}
+	return func() { _ = f.Close() }
 }
 
 // sweepDeadWatchers removes pid files whose process is gone, including

@@ -170,7 +170,7 @@ func TestWatchInboxRemovesItsPidFileOnSIGTERM(t *testing.T) {
 	w := startWatcher(t, bin, watchInboxEnv(inbox), "session-x")
 	pidFiles := func() []string {
 		a, _ := filepath.Glob(filepath.Join(inbox, ".watcher*.pid"))
-		b, _ := filepath.Glob(filepath.Join(inbox, ".watchers", "*"))
+		b, _ := filepath.Glob(filepath.Join(inbox, ".watchers", "*.pid"))
 		return append(a, b...)
 	}
 	if len(pidFiles()) == 0 {
