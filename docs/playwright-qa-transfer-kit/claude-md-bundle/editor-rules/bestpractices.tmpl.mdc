@@ -11,7 +11,6 @@ tags: ["react", "typescript", "frontend"]
 - Prefer composition over inheritance
 - Keep components focused and single-purpose
 - Use meaningful variable and function names
-- Document complex business logic and non-obvious decisions
 - Follow the existing code patterns and conventions
 
 ## TypeScript

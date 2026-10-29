@@ -20,7 +20,6 @@ When introducing or changing how something is done (a new pattern, approach, arc
 - **.cursor/rules/*.mdc** - Add or edit rules when you introduce a new convention
 - **README.md** - When setup, usage, or architecture changes
 - **docs/** - Feature docs, architecture docs, or technical specs
-- **Comments in code** - For non-obvious decisions; prefer updating docs when the pattern applies broadly
 - **`{{E2E_ROOT}}**/CLAUDE.md`** - Every folder under `{{E2E_ROOT}}` has its own `CLAUDE.md`. When you add, move, rename, or delete a file in a `{{E2E_ROOT}}` folder, update that folder's `CLAUDE.md` in the same change; a new folder gets a new `CLAUDE.md` with the standard `> **Maintenance:**` footer
 
 ## Examples
