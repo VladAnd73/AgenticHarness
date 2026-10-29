@@ -22,10 +22,10 @@ they call methods on these classes. Parent: [`../CLAUDE.md`](../CLAUDE.md).
 - **Multi-element waits** - `waitForAnyElementToBeVisible/Attached([...], timeout?)`.
 - **Async write-back waits** - `reloadUntil(assertion, timeout?)`: reload-and-retry until an assertion
   passes, for pages that don't live-update when a background import lands.
-- **Query intercepts** - `intercept*GraphQuery` helpers (e.g. an estimate query, the forecast query,
+- **Query intercepts** - `intercept*GraphQuery` helpers (e.g. the estimation queries and
   the restrictions query): `route.fulfill` the canned payloads from
-  [`../data/fixtures/Responses/`](../data/fixtures/Responses/CLAUDE.md) so forecast-dependent specs
-  don't hit the live external forecasting service.
+  [`../data/fixtures/Responses/`](../data/fixtures/Responses/CLAUDE.md) so estimation-dependent specs
+  don't hit the live external estimation service.
 - **Small helpers** - `onLocatorSelectOption(...)`, `getTextBoxWithTestId(testId)`.
 
 ## How to use it (the POM pattern in THIS suite)
@@ -47,8 +47,7 @@ they call methods on these classes. Parent: [`../CLAUDE.md`](../CLAUDE.md).
   optional scope/tab, a `poll?` or strict mode. A sibling helper beside an existing one needs a stated
   reason: two methods over the same locator drift the moment the page changes, and only one of them
   gets updated.
-- **No comments in a page object, with one exception:** a comment may only describe **user behaviour**,
-  and it must carry a **ticket link**. Never explain `src/` here - no component or file names, props,
+- **No comments in a page object. None.** Never explain `src/` here - no component or file names, props,
   render or query timing, test-id schemes, routing rules. Provenance (tickets, commits, root-cause
   analysis) belongs in the PR or the ticket, conventions in this `CLAUDE.md`. Rename the thing rather
   than adding a comment about it, and don't move the prose into a method or variable name instead.
@@ -64,7 +63,7 @@ they call methods on these classes. Parent: [`../CLAUDE.md`](../CLAUDE.md).
 - Imports use `~/playwright/*` and `~/cypress/common/types/*`. **Never `~/utils`** (app barrel ESM trap
   - root doc). The one deliberate exception seen in the suite: `components/modals/orders/` imports a
   type from an app page's `types` module (a type-only leaf, not the util barrel).
-- Intercept helpers use hard-coded mock numbers - a spec asserting exact forecast values is coupled to
+- Intercept helpers use hard-coded mock numbers - a spec asserting exact estimated values is coupled to
   those fixtures.
 - `openUnstableFloatingSection` may reload the page up to 4 times - don't assume in-page state survives it.
 

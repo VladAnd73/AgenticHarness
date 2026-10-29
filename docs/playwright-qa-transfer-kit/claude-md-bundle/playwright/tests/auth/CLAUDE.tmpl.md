@@ -34,9 +34,8 @@ Parent: [`../CLAUDE.md`](../CLAUDE.md).
   [`../main/login/`](../main/login/CLAUDE.md); everything that needs no tenant lives here. Only the
   *presence* of the SSO buttons is asserted here.
 - **Before writing an SSO sign-in spec, read these two, in this order.**
-  1. **It must sign in a user who belongs to a tenant.** A user with no tenant is treated as a legacy-app
-     user and the OAuth callback hands them to the legacy app instead of back to {{PROJECT_NAME}} - so
-     the spec fails looking exactly like broken SSO. `main/login/login.spec.ts` seeds a tenant for this
+  1. **It must sign in a user who belongs to a tenant.** A user with no tenant is not routed back to
+     {{PROJECT_NAME}} by the OAuth callback - so the spec fails looking exactly like broken SSO. `main/login/login.spec.ts` seeds a tenant for this
      reason; reuse that setup rather than adding a tenant seed here.
   2. **The SSO round-trip is intermittently broken in dev mode, and no test-side change fixes it.**
      React `StrictMode` double-invokes the OAuth-callback page's effect, so the single-use temp token can

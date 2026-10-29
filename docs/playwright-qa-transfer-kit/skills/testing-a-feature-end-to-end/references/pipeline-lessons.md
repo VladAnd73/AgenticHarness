@@ -95,9 +95,8 @@ items. Read the stage section before running that stage.
   bloat: provenance bleeding into source (backend `file:line` and SHA pins copied into spec comments),
   orphaned demo/dead code with heavy JSDoc, and blanket "JSDoc every method" plus next-line paraphrase of the code. Add
   NO comments to spec, page-object, fixture or seed files. Rename or restructure instead. Provenance goes in
-  the PR description or the ticket; conventions go in the folder `CLAUDE.md`. Single exception: a comment
-  describing user-visible behaviour that carries a ticket link. Resolve a comment-vs-comment merge conflict
-  by deleting the comment.
+  the PR description or the ticket; conventions go in the folder `CLAUDE.md`. No exceptions. Resolve a comment-vs-comment merge conflict by
+  deleting the comment.
 
 - **Recover deleted PO/spec scaffolding from git** (`git show <sha>^:path`) rather than re-authoring.
 

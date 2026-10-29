@@ -25,7 +25,7 @@ that fits the area you're testing instead of re-deriving it here** (the same way
   and "Unit Tests (Vitest)" sections.
 - **Root project doc** - repo-wide testing policy ("Use Playwright for new E2E tests; Cypress is
   deprecated"), commands, and the "Testing Rules" summary.
-- **`editing-backend-seeds-and-mocks` (not included in this kit)** - how backend seeds are authored + the
+- **`editing-backend-seeds-and-mocks`** - how backend seeds are authored + the
   declare->ack governance for editing them (they live in another repo).
 
 Do **not** repeat those conventions inline and risk drift - cite them. This skill adds what they
@@ -94,7 +94,7 @@ Before writing any code, use your tools to gather what you need:
 - Look at `{{SEED_DIR}}` in {{BACKEND_REPO}} to find seeds relevant to the scenario.
 - If an existing seed covers the test's preconditions, use it.
 - If no suitable seed exists, a backend seed must be created/extended - **route that through
-  `editing-backend-seeds-and-mocks` (not included in this kit)** (it owns both the authoring rules and
+  `editing-backend-seeds-and-mocks`** (it owns both the authoring rules and
   the mandatory coordinator declare->ack for editing files outside your worktree). Do **not** silently
   write to the backend repo.
 - Do not assume a seed exists - always verify.
@@ -118,7 +118,7 @@ behavior from {{INTENT_SOURCE}} via **{{INTENT_SKILL}}** (it carries the authori
 does behave, intent source = how it should behave; on a gap, **flag it**, don't silently follow either).
 
 Use that to write **concrete expected values** in assertions instead of guessing (e.g. assert
-`'assembly'` not `'draft'`; assert `'paused'` not `'stopped'` for a published + past-start-date
+`'pending'` not `'draft'`; assert `'paused'` not `'stopped'` for a published + past-start-date
 unarchived item). If the intent source and the code disagree, surface the gap rather than encoding a
 guess.
 
@@ -143,7 +143,7 @@ get wrong or that this skill specifically enforces:
    from `~/cypress/common/types/seedTypes` (or `~/cypress/common/types/memberTypes` etc.). If the test
    doesn't need a module-level variable, don't add one. **Never declare seed types inline in the test
    file** - add them to `cypress/common/types/seedTypes.ts` and import from there. Name the type after
-   the seed it mirrors (`OrdersOverviewDashboardSeed` <- `seeds/admin_panel/orders_overview_dashboard`);
+   the seed it mirrors (`ListOverviewSeed` <- `seeds/<area>/list_overview`);
    **do not add a comment naming the seed file** (see rule 10).
 
 3. **Seed types must match the actual JSON shape.** If the seed embeds associations via the splat
@@ -208,9 +208,9 @@ get wrong or that this skill specifically enforces:
    seed `beforeEach`, per-variant `goto`). Reference:
    `playwright/tests/frozenDomain/groups/groupDetailsIntegrationStatus.spec.ts`.
 
-10. **Do NOT add comments.** A flat ban, covering specs, page objects, `seedTypes.ts`, fixtures,
-    helpers - every repo file. The single exception: a comment that describes user behaviour AND
-    carries a ticket link. Nothing else - not "explain the WHY", not provenance, not a seed-file name.
+10. **Do NOT add comments. None.** A flat ban with no carve-outs - not "explain the WHY", not a
+    user-behaviour note with a ticket link, not provenance, not a seed-file name. It covers specs, page
+    objects, `seedTypes.ts`, fixtures, helpers - every repo file.
     - If a line needs explaining, **rename the symbol or restructure the code**. The `test('...')` title
       and the `expect`/page-object method names are where meaning lives.
     - If it still needs explaining, the prose goes in the **PR description**, the **{{TRACKER}} ticket**,
@@ -242,7 +242,7 @@ get wrong or that this skill specifically enforces:
       to the requester.
     Rule of thumb: if a reader can't trace your assertion back to a real user action, you've built a
     workaround - fix it. A "repair" shim seed that asserts repaired badges without ever clicking the
-    real "Try Repair" button is a MAJOR workaround. Always use the application from a user's point of
+    real repair button is a MAJOR workaround. Always use the application from a user's point of
     view.
 
 12. **Consolidate tests that share seed + setup - don't split what one test can assert.** Seeding +
@@ -314,11 +314,11 @@ get wrong or that this skill specifically enforces:
         asserted at that service's **{{MOCK_TOOL}} admin transaction log** for the corresponding mock
         server (the `vendorBMock` / `vendorAMock.ts` `expect*`/`verify*` helpers - this is rule 6's
         downstream integration effect, e.g. the gateway called {{VENDOR_B}}
-        `POST /orders/:id/status -> 204`). The user can't see an outbound call, so there is no UI
+        order-status callback with a 2xx). The user can't see an outbound call, so there is no UI
         oracle for it.
       (b) the app's **own** API/GraphQL used ONLY for **navigation/setup** - resolving a uuid or minting
         a page token to *open* the page the assertion then drives (e.g. `tenantItemBundleInstances` +
-        `generateOrderManagementPreviewToken`). **Never duplicate a UI-renderable assertion with an
+        `generatePreviewToken`). **Never duplicate a UI-renderable assertion with an
         app-response read**, and never use the app's own response as the end-state oracle for something
         the page shows. A value with **genuinely no UI surface anywhere** is not asserted from the app's
         response either: hand it to developers as a coverage note (QA writes e2e only).
@@ -330,9 +330,9 @@ get wrong or that this skill specifically enforces:
       rejected: assert the rendered record page + its connected pages; reserve API checks for the
       outbound vendor mock contract.
     - **Setup data comes from the seed, and the seed RETURNS what the test needs** (uuids, tokens,
-      tenant) in its JSON - the way `seeds/main/order_management_pending_activation` returns `.token`.
+      tenant) in its JSON - the way a page-access seed returns its `.token`.
       If you need a value that the seed doesn't return yet, add it to the seed's returned hash (route
-      the seed edit through `editing-backend-seeds-and-mocks` (not included in this kit)), don't mint it
+      the seed edit through `editing-backend-seeds-and-mocks`), don't mint it
       via `eval`.
 
     | Rationalization | Reality |
@@ -440,7 +440,7 @@ get wrong or that this skill specifically enforces:
       renaming, free-text fields). The rule applies to derived/computed/integration-populated values.
     - **And check the fixture can even produce the failure:** if the seed or vendor mock only ever emits
       one canonical variant, the risky branch is unreachable and the spec is green by construction. Add
-      the variant (see `editing-backend-seeds-and-mocks` (not included in this kit)) rather than
+      the variant (see `editing-backend-seeds-and-mocks`) rather than
       declaring it untestable.
     *Why:* round-trip asserts on a derived field stay green throughout the very leak they sit on.
 
@@ -450,7 +450,7 @@ get wrong or that this skill specifically enforces:
 
 After presenting the scaffolded file:
 - If a new backend seed is needed, confirm its path and what it returns, and confirm the declare->ack
-  path via `editing-backend-seeds-and-mocks` (not included in this kit) was followed.
+  path via `editing-backend-seeds-and-mocks` was followed.
 - Highlight if a new fixture needs to be added to `fixtures.ts`.
 - Note any placeholder TODOs the user needs to fill in.
 - **Third-party log coverage (rule 17):** if the flow touches an external service

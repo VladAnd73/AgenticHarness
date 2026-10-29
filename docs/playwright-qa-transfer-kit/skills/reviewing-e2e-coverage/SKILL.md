@@ -121,7 +121,7 @@ Rules the report must enforce:
 - **Respect shared-stack constraints.** If provider APIs are unmocked on the e2e stack, do NOT recommend
   firing live provider-hitting jobs. Tier the recommendation: (a) deterministic minimum achievable now
   (flash + observable state transition), (b) full data-outcome flagged as needing a VCR cassette / mock
-  (note the prerequisite, see `editing-backend-seeds-and-mocks` (not included in this kit)).
+  (note the prerequisite, see `editing-backend-seeds-and-mocks`).
 
 ## Report shape (the required output - this IS the deliverable)
 

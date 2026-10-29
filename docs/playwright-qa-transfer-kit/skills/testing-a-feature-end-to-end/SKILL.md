@@ -70,7 +70,7 @@ Read the matching stage in `references/pipeline-lessons.md` before running each 
 | 1 | Intake / ticket analysis | `analyzing-test-tickets` | Developer tickets STRICTLY read-only; verify WHERE the specs actually live (remote PR tip, not the integration branch) |
 | 2 | Product intent | `{{INTENT_SKILL}}` | Docs first; intended behavior = the bug-hunt oracle; every intent claim gets a verified link |
 | 3 | Test planning & scope | (glue) | Consolidate (no standalone page-load tests; merge same-seed/setup) down to the **safe floor**, zero coverage loss; full CRUD; compute the FULL expected effect-set per action up front |
-| 4 | Backend + seed + mock | `starting-the-e2e-backend`, `refreshing-the-backend-checkout` (not included in this kit), `editing-backend-seeds-and-mocks` (not included in this kit) | Own per-slug backend; additive flag-gated seeds; [GATE] for schema/factory/app-code edits; shared mocks-repo edits go through the coordinator (declare -> ack) - additive, pattern-following routes are coordinator self-ack, anything structural is still [GATE] |
+| 4 | Backend + seed + mock | `starting-the-e2e-backend`, `refreshing-the-backend-checkout` (not included in this kit), `editing-backend-seeds-and-mocks` | Own per-slug backend; additive flag-gated seeds; [GATE] for schema/factory/app-code edits; shared mocks-repo edits go through the coordinator (declare -> ack) - additive, pattern-following routes are coordinator self-ack, anything structural is still [GATE] |
 | 5 | E2e authoring | `new-test` + `running-e2e-tests` | Playwright, Page Object Model, **FLAT BAN on comments** in test code (see below) |
 | 6 | Assertion depth | Assertion playbook below | Assert ALL effects (state change + every outbound vendor request via the mock transaction-log helper), not banners alone |
 | 7 | Run / CI + failure triage | `investigating-e2e-failures` | Drive the REAL UI (no synchronous job shims); re-verify raw evidence yourself; run the FULL folder, not one file |
@@ -86,7 +86,7 @@ Read the matching stage in `references/pipeline-lessons.md` before running each 
 HARD RULE: add NO comments to spec, page-object, fixture, or seed files. Rename or restructure instead.
 - Provenance (which ticket, which commit, which backend file) goes in the PR description or the ticket.
 - Conventions go in the folder's `CLAUDE.md` (shipped in this kit as `CLAUDE.tmpl.md`).
-- Single exception: a comment that describes user-visible behaviour and carries a ticket link.
+- No exceptions: not a user-behaviour note, not a ticket link.
 - A comment-vs-comment merge conflict is resolved by deleting the comment.
 
 ## Assertion-depth playbook (stage 6)
@@ -95,7 +95,7 @@ HARD RULE: add NO comments to spec, page-object, fixture, or seed files. Rename 
   deterministic completion oracle (know beforehand exactly what the action will cause, assert ALL of it,
   then the test is done).
 - Assert the PRIMARY state change AND every downstream effect: the outbound {{VENDOR_A}} request (and any
-  call to an external forecasting service) captured via the reusable mock transaction-log helper (reference
+  call to an external estimation service) captured via the reusable mock transaction-log helper (reference
   project: `playwright/support/vendorAMock.ts`); DB/state transitions; list content.
 - Grade each assertion: **[Presence-only] / [Shallow] / [Deep].** Banners/dialogs are SECONDARY, never
   sufficient alone. "Check the button exists" is the anti-pattern - click it and assert the outcome.

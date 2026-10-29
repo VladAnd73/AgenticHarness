@@ -5,9 +5,9 @@ Item creation, list, lifecycle, bundles, and destination operations. Parent: [`.
 ## What's here
 | Spec | Exercises | Seeds | @smoke |
 |------|-----------|-------|--------|
-| <spec file> | <one row per spec: list/search/lifecycle/ordering/filters; publication-status drawer and failure chain; create flows; bundle ordering and transitions; per-destination pause/resume; record-variant summaries; first-time publish payload. Mark every spec that asserts at the {{VENDOR_A}} mock.> | <seed paths, e.g. `seeds/main/item_bundle_live`> | <count / skipped> |
+| <spec file> | <one row per spec: list/search/lifecycle/ordering/filters; publication-status drawer and failure chain; create flows; bundle ordering and transitions; per-destination pause/resume; record-kind summaries; first-time publish payload. Mark every spec that asserts at the {{VENDOR_A}} mock.> | <seed paths, e.g. `seeds/main/item_bundle_live`> | <count / skipped> |
 
-Subfolder: **[`details/`](details/CLAUDE.md)** - budget visibility + item edit specs.
+Subfolder: **[`details/`](details/CLAUDE.md)** - restricted-field visibility + item edit specs.
 
 ## Patterns & gotchas
 - **If a row's click target depends on its state (e.g. a draft opens the editor, not the detail page),

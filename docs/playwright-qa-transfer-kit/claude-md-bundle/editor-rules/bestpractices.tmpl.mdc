@@ -75,10 +75,7 @@ tags: ["react", "typescript", "frontend"]
 - Avoid unnecessary dependencies; prefer stable references
 
 ### Common Patterns
-- Use `useQuery` from React Query for data fetching
-- Use `useMutation` for data mutations
-- Use `useToggle` from UI library for boolean state
-- Use `useEffectOnce` for effects that should run once
+- Use the project's data-fetching hooks for reads and mutations rather than ad-hoc `fetch` in components
 
 ## Data Fetching
 
@@ -98,12 +95,11 @@ tags: ["react", "typescript", "frontend"]
 
 ## Forms
 
-### React Final Form
-- Use `react-final-form` for form management
+### {{FORMS_LIBRARY}}
+- Use `{{FORMS_LIBRARY}}` for complex forms
 - Define form validation functions separately
 - Use field-level validation when possible
 - Handle form submission with proper error handling
-- Use `FormSpy` for accessing form state when needed
 
 ## Styling
 
@@ -119,9 +115,8 @@ tags: ["react", "typescript", "frontend"]
 
 ## Internationalization (i18n)
 
-### Lingui
-- Use `Trans` component for translatable text
-- Use `t` macro for string literals in code
+### {{I18N_LIBRARY}}
+- Use `{{I18N_LIBRARY}}` for every user-facing string, in JSX and in plain code
 - Extract all user-facing strings for translation
 - Use descriptive message IDs
 - Keep translations in sync with code changes
@@ -162,7 +157,7 @@ tags: ["react", "typescript", "frontend"]
 ### Error Boundaries
 - Use error boundaries for component error handling
 - Provide fallback UI for errors
-- Log errors appropriately (e.g., Sentry)
+- Log errors to the project's error tracker
 
 ### API Errors
 - Handle API errors gracefully

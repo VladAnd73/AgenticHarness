@@ -29,7 +29,7 @@ Core rules:
 ```bash
 slug="{{SLUG}}"
 [ -z "$slug" ] && { echo "ABORT: set an explicit short slug" >&2; exit 1; }
-be_port=$(printf '%s' "$slug" | cksum | awk '{print 3100 + ($1 % 900)}')
+be_port=$(printf '%s' "$slug" | cksum | awk '{print {{PORT_BASE}} + ($1 % {{PORT_RANGE}})}')
 be_wt={{BACKEND_WORKTREE_ROOT}}-$slug
 ```
 

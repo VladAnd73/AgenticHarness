@@ -46,17 +46,17 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   `runScheduler()` -> drains async jobs via `seeds/transitions/run_schedulers` ({{DRAIN_COMMAND}});
   `takeItemToStatus(uuid, status)`, `waitForItemStatus(uuid, status?, opts?)`,
   `waitForItemPublished(uuid, opts?)` -> item lifecycle (60s local / 120s CI polling);
-  `waitForBundleItemAssetSets({ itemUuid, tenantUuid, minimum?, timeout? })` -> polls the app's own
-  asset-sets query until the bundle item has at least `minimum` asset sets and **none of them is still
-  `pendingGeneration`**, and returns how many. **Always gate `completeBundleItemSetup` on it.** Ordering a
-  bundle enqueues the rendering asynchronously, so the create call returns before any asset set exists,
+  `waitForBundleItemAttachments({ itemUuid, tenantUuid, minimum?, timeout? })` -> polls the app's own
+  attachments query until the bundle item has at least `minimum` attachment groups and **none of them is
+  still processing**, and returns how many. **Always gate `completeBundleItemSetup` on it.** Ordering a
+  bundle enqueues attachment processing asynchronously, so the create call returns before any group exists,
   and the setup seed iterates what it finds - on an empty collection it links nothing, raises nothing,
   and the item goes on to publish an empty payload. Waiting for existence alone is not enough either: the
-  seed also refreshes derived children, which pairs each target with the assets already on the set, so a
-  set that exists but has not finished generating yields an item with targets and no assets. Nothing
+  seed also refreshes derived children, which pairs each target with the attachments already in the group,
+  so a group that exists but has not finished processing yields an item with targets and no attachments. Nothing
   downstream fails at the real cause, so the race surfaces much later as a stalled phase or a
-  missing-assets assertion; `completeBundleItemSetup(uuid)` -> `seeds/transitions/complete_bundle_item_setup`,
-  linking a target onto every asset set a bundle item just rendered - the service that normally attaches
+  missing-attachments assertion; `completeBundleItemSetup(uuid)` -> `seeds/transitions/complete_bundle_item_setup`,
+  linking a target onto every attachment group a bundle item just produced - the service that normally attaches
   targets is disabled in the test env, so a bundle item never gets one on its own; needed before a real
   publish of a bundle item carries any assets;
   `createAdmin()` (factory-built admin used by login), `insertCassette`/`ejectCassette` (VCR control).
@@ -102,10 +102,10 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   either half: a single-shape matcher silently never matches one destination, and a one-shot read races
   the destinations that post later - both of which fail on the destination, not on the item, so they read
   like a product bug. Add the shape to `taskEntryNamesItem` when a new destination appears.
-  `verifyVendorReceivedDistinctImages({ itemName, expectedImageCount })` (also a task POST, so it reuses
-  `taskEntryNamesItem` and the same poll-until-arrived pattern) asserts a bundle task's asset arrays carry
-  exactly N entries referencing N distinct images (a bug that renders N identical images as N entries
-  still fails on the deduplicated count).
+  `verifyVendorReceivedDistinctAttachments({ itemName, expectedAttachmentCount })` (also a task POST, so it
+  reuses `taskEntryNamesItem` and the same poll-until-arrived pattern) asserts a bundle task's attachment
+  arrays carry exactly N entries referencing N distinct files (a bug that sends one file N times still
+  fails on the deduplicated count).
   `verifyVendorReceivedPost({ destination, actorId, message })` - the post paths, matched by actor id and
   requiring a 2xx (a request that fired but failed doesn't count as "sent").
   `verifyVendorReceivedNoPost({ destination, actorId })` is the negative counterpart - it matches on the
@@ -115,8 +115,8 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
 - **vendorBMock.ts** - `VendorBMock extends MockClient`: the **{{VENDOR_B}}** outbound-contract
   assertions for the integration harness, addressed by `{{VENDOR_B_MOCK_URL_ENV}}`.
   `expectRecordResolved(recordId, { times? })`, `expectRecordPublicationsResolved(recordId, { times? })`,
-  `expectOrderStatusPosted(orderId)` (204 callback), `expectRecordImagesFetched(recordId, imageCount)`
-  (import proof: list + each binary). Named after the vendor API calls so specs read intent; all four
+  `expectOrderStatusPosted(orderId)` (204 callback), `expectRecordAttachmentsFetched(recordId, attachmentCount)`
+  (import proof: list + each file). Named after the vendor API calls so specs read intent; all four
   delegate to one private `expectCalls(method, path, { status, times?, timeout? })`. Exact counts
   back-stop a skipped per-test purge - pass `times` when the flow legitimately resolves the same record
   once per leg (sync, then order).
@@ -130,7 +130,7 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   `process.env` read). `dispose()`. `IntegrationImports` and `IntegrationOrders` extend it.
 - **integrationImports.ts** - `IntegrationImports extends IntegrationBackend`. `seedVendorImport()` runs
   `seeds/integration/vendor_b_import` (fires the real sync job -> fetch RPC -> gateway fetches the record
-  + images from the vendor B mock -> uploads to LocalStack S3 -> subscriber attaches assets);
+  + attachments from the vendor B mock -> uploads to LocalStack S3 -> subscriber attaches assets);
   `waitForImportedRecord(...)` polls the backend's own GraphQL until the imported record has its
   media-attached assets (proof the async chain landed).
 - **integrationOrders.ts** - `IntegrationOrders extends IntegrationBackend` (ctor also takes the vendor B
@@ -145,18 +145,18 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   leg (needed before snapshotting an order, and the only option because that leg's marker has no UI or
   GraphQL surface); `fireVendorOrder(orderId, seed)` drives the inbound order webhook with Basic auth and
   returns the HTTP status; `resolveActivatedOrder(orderId, seed)` finds the created instance via the
-  authenticated bundle-instances query and mints the Order-Management preview token via the same mutation
+  authenticated bundle-instances query and mints the page preview token via the same mutation
   the main-area menu calls.
 - **integrationGateway.ts** - `IntegrationGateway`, a dep-clean helper (`child_process` only) that resets
   the dockerized integration-gateway DBs by invoking the gateway repo's own reset by name: `docker exec
-  <gateway-container> bash /app/docker/e2e/reset-db.sh`. The reset itself (a pure-psql `TRUNCATE ...
+  <gateway-container> bash {{GATEWAY_RESET_SCRIPT}}`. The reset itself (a pure-psql `TRUNCATE ...
   RESTART IDENTITY CASCADE` of both databases minus a preserve-list, no framework boot, no reseed) lives
   in the gateway repo - this side carries no SQL or schema knowledge, so gateway schema drift is handled
-  there. The container defaults to `<compose-project>-gateway-1`, overridable via
-  `INTEGRATION_GATEWAY_CONTAINER` (or `INTEGRATION_GW_COMPOSE_PROJECT`). Set `INTEGRATION_GATEWAY_REPO` to
+  there. The container name defaults to one derived from the compose project, overridable via
+  `{{GATEWAY_CONTAINER_ENV}}` (or `{{GATEWAY_COMPOSE_PROJECT_ENV}}`). Set `{{GATEWAY_REPO_ENV}}` to
   a gateway checkout instead when the gateway runs natively (no container to exec into) - the same script
   runs there directly, but the container's environment then has to come from the run: export
-  `RAILS_ENV=test`, `GATEWAY_DB_URL`, `GATEWAY_SECONDARY_DB_URL` and put `psql` on `PATH`, or every
+  the test-env flag, `{{GATEWAY_DB_URL_ENV}}`, `{{GATEWAY_SECONDARY_DB_URL_ENV}}` and put `psql` on `PATH`, or every
   integration test fails in the reset fixture before its first assertion. (The gateway's local dotenv file
   is not shell-safe - its URLs contain `&`, so read the values out rather than `source`-ing the file.)
   Driven by the `resetIntegrationGateway` auto fixture; the gateway has no per-test truncation of its own,
@@ -168,7 +168,7 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
 - **utils.ts** - the suite's OWN dep-clean util leaf (import this, NOT `~/utils`). Array pickers,
   date/price formatters (`formatPrice`, `browserDateFormat`, `formatDateLikeBrowser`,
   `formatItemDurationRangeLikeBrowser`), `phoneDigitsPattern`, `getPhaseDisplayName`
-  (`'assembly'`->`'Draft'`), the phase-transition oracles `phaseAfterUnarchive(item)` /
+  (`'pending'`->`'Draft'`), the phase-transition oracles `phaseAfterUnarchive(item)` /
   `phaseAfterResume(item)` (derive the destination phase from the item's own publish timestamps and start
   date instead of hard-coding one), media-upload path helpers (`generateMediaFilesForUpload`,
   `generateVideoFileForUpload`), and `commonPrefix(values)` (derive a search term several seeded values
@@ -176,7 +176,7 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   **For a value the app renders formatted, derive the expectation instead of hard-coding it**:
   `formatDateLikeBrowser(page, iso)` formats in the page, so the browser's own locale decides (the range
   helper is built on it), and `phoneDigitsPattern(number)` matches the digits in order whatever separators
-  the app inserts. A literal `'01/09/2026'` or `'+00 0000 0000'` is an assertion about the runner's
+  the app inserts. A literal `'01/09/2026'` or `'+1 555 010 0199'` is an assertion about the runner's
   locale, not about the app.
 - **global-setup.ts** - Playwright `globalSetup`: on CI only, warms the app shell (`/`, `/orders`) so the
   first shard doesn't time out on cold instrumented compile. **No mock-log purge here** - the
@@ -201,8 +201,7 @@ the mock / integration transaction-log helpers. Parent: [`../CLAUDE.md`](../CLAU
   that vendor path, log predicate, or seed concern, and EXTEND it** with an optional parameter. A sibling
   helper beside an existing one needs a stated reason: two helpers over the same log predicate or seed
   drift, and only one of them gets updated.
-- **No comments in support code, with one exception:** a comment may only describe **user behaviour**,
-  and it must carry a **ticket link**. Never explain `src/` or the backend here - no file names, props,
+- **No comments in support code. None.** Never explain `src/` or the backend here - no file names, props,
   render or query timing, test-id schemes, routing rules - and no provenance (tickets, commits,
   analysis), which belongs in the PR or the ticket. Give the helper a better name instead of a comment
   about it.

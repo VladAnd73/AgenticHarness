@@ -11,8 +11,7 @@ Use this when the work is about **Playwright / Cypress e2e**, **flaky tests**, *
 ## Non-negotiable
 
 - **Do** change: `{{E2E_ROOT}}`, e2e-related Cypress specs/page objects, test fixtures, backend seeds
-  that exist **only to support e2e** (via the governance in `editing-backend-seeds-and-mocks` (not
-  included in this kit)), and CI config for tests.
+  that exist **only to support e2e** (via the governance in `editing-backend-seeds-and-mocks`), and CI config for tests.
 - **Do not** change **application** code for this class of work: no edits under `src/` (components,
   hooks, product flows) to "make the test pass" or "speed up the test" unless the user **explicitly**
   asks for a product change or you are in a **developer** handoff.
@@ -54,7 +53,7 @@ This skill does **not** replace those workflows; it only constrains **where you 
 - **running-e2e-tests** - run or debug a Playwright test (also covers CI file targeting)
 - **investigating-e2e-failures** - root-cause a failure from report/trace artifacts
 - **starting-the-e2e-backend** - bring up the backend for e2e
-- **editing-backend-seeds-and-mocks** (not included in this kit) - the declare->ack governance +
+- **editing-backend-seeds-and-mocks** - the declare->ack governance +
   authoring rules for any backend seed / {{MOCK_TOOL}} change (seeds live in another repo - never a
   silent cross-repo write)
 - **new-test** - scaffold a new Playwright spec

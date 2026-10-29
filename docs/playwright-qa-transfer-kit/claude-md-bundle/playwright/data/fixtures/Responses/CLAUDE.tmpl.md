@@ -10,7 +10,7 @@ Parent: [`../CLAUDE.md`](../CLAUDE.md).
 
 ## How to use it
 Consumed by the `intercept*GraphQuery` helpers on `pageObjects/BasePage.ts`, which `route.fulfill` these
-payloads so the specs that render them don't depend on the live external forecasting service.
+payloads so the specs that render them don't depend on the live external estimation service.
 
 ## Conventions & gotchas
 - These are snapshots of the backend contract with no type guard - a backend schema change can leave a

@@ -17,7 +17,7 @@ Parent: [`../CLAUDE.md`](../CLAUDE.md).
 
 ## Conventions & gotchas
 - A menu that returns drawer classes directly is tightly coupled to those drawers; if a create flow
-  needs an intercept (e.g. the forecast query), the menu method installs it before opening the drawer.
+  needs an intercept (e.g. an estimation query), the menu method installs it before opening the drawer.
 - Assert a gated menu through the offered-set + complement oracle, not one card at a time; methods
   scoped to a container the current app version no longer renders are dead - assert through the live
   container and open the menu with a plain click (see [`../../CLAUDE.md`](../../CLAUDE.md)).

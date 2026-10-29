@@ -56,7 +56,7 @@ Two design choices in this config are load-bearing.
 
 **(b) `workers: 1` despite `fullyParallel: true`.** The reason is not stated in the config. **[HYPOTHESIS]:** the global `seed('clean')` truncation (3.3) would let parallel workers truncate each other's data mid-test; two runs sharing one backend were observed doing exactly that. CI parallelism therefore comes from **shards (separate runners, separate DBs)**, never from workers.
 
-### 1.2 `playwright.prod-smoke.config.ts`
+### 1.2 `{{PROD_SMOKE_CONFIG}}`
 
 A separate config for a read-only production smoke test. The main config never collects it.
 
@@ -72,7 +72,7 @@ A separate config for a read-only production smoke test. The main config never c
 | project | one, `prod-smoke`, Desktop Chrome, `en-US` |
 | `globalSetup`, `webServer`, fixtures | **none**: no backend, no Vite, no `support/fixtures` |
 
-CI runs it with `playwright test -c playwright.prod-smoke.config.ts`, triggered by `repository_dispatch` (fired after a backend production deploy) and `workflow_dispatch`.
+CI runs it with `playwright test -c {{PROD_SMOKE_CONFIG}}`, triggered by `repository_dispatch` (fired after a backend production deploy) and `workflow_dispatch`.
 
 ### 1.3 `playwright/tsconfig.json` and aliases
 
@@ -99,7 +99,7 @@ CI runs it with `playwright test -c playwright.prod-smoke.config.ts`, triggered 
 playwright/
 |-- CLAUDE.md                suite index + root conventions
 |-- tsconfig.json
-|-- reporters/spec-timing-reporter.ts   per-file duration -> playwright_timings[-shard-N].json
+|-- reporters/spec-timing-reporter.ts   per-file duration -> {{TIMINGS_FILE}} (one partial per shard)
 |-- support/                 ALL infra; the ONLY home for fixtures/helpers
 |   |-- fixtures.ts          the single shared `test` (auto forEachTest + named fixtures)
 |   |-- server.ts            Server: seed(), runScheduler(), lifecycle polls, VCR control
@@ -190,7 +190,7 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
 | Floating-UI stability | `openUnstableFloatingSection`, `waitForDrawerClosedOrReload` | Specific to the app's UI library (Headless UI portals); the first may reload a few times. |
 | Multi-element waits | `waitForAnyElementToBeVisible/Attached` | Generic. |
 | Async write-back | `reloadUntil(assertion, timeout)` | `expect(...).toPass` with reload. Generic. |
-| Query intercepts | `intercept*Query` | Fulfil canned `data/fixtures/Responses/*` so specs never hit an external forecasting service that is not under test. |
+| Query intercepts | `intercept*Query` | Fulfil canned `data/fixtures/Responses/*` so specs never hit an external estimation service that is not under test. |
 
 ---
 
@@ -281,7 +281,7 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
     - `verifyVendorReceived{Archive,Pause,Active}Update`;
     - `verifyVendorReceivedRedistribute` and its negatives `...DidNotReceiveRedistribute` / `...ReceivedNoRedistribute`;
     - a few further per-payload verifiers, each with a `{,No}` negative or `...AttemptFailed` variant.
-  - **Vendor B** (`vendorBMock.ts`): `expectRecordResolved`, `expectEntriesResolved`, `expectOrderStatusPosted`, `expectRecordImagesFetched`, all through one `expectCalls(method, path, {status, times})`.
+  - **Vendor B** (`vendorBMock.ts`): `expectRecordResolved`, `expectEntriesResolved`, `expectOrderStatusPosted`, `expectRecordAttachmentsFetched`, all through one `expectCalls(method, path, {status, times})`.
 - **Rules encoded in these helpers** (from `support/CLAUDE.md`):
   - every verifier asserts the **response status**, so a 404 fall-through fails instead of greening on a mere hit;
   - **match on the specific entity** (uuid, name, actor id), not the path alone;
@@ -303,19 +303,19 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
 
 | Workflow | Trigger | Gate | What it runs |
 |---|---|---|---|
-| `check-if-approved.yml` | `pull_request_review: submitted` | at least 1 approval | Adds label **`approved`** |
-| `playwright-smoke.yml` -> `compute-tags` + `smoke-test` | PR `labeled/reopened/synchronize`, **not** into the release branches | has `approved` AND not `skip tests` / `full_cypress` / `full_playwright_only` | `bin/compute-diff-tags.mjs --base-tag=@smoke` -> base workflow with `grepTags` (smoke shard count) |
-| `playwright-smoke.yml` -> `full-test` | same | label `full_cypress` and not `skip tests` | base workflow, full |
-| `playwright-smoke.yml` -> `playwright-full` | same | label `full_playwright_only` and not `skip tests` | base workflow, full |
-| `playwright-master.yml` ("Playwright All Tests Workflow") | PR `opened/reopened/synchronize` **into the release branches** | not `skip tests` | base, full, **`collectTimings: true`** |
-| `release-tests-on-label.yml` | PR labeled, not into release branches | `run-release-tests` and not `skip tests`; concurrency cancel-in-progress | base full + timings, **and** full Cypress |
-| `playwright-integration.yml` | PR labeled/sync, not into release branches | label `integration_tests` | Full multi-service stack (backend image + integration gateway + message queue + S3 emulator + vendor mocks + Vite), `playwright test --project=integration` |
-| `playwright-timings-refresh.yml` | `workflow_run` completed of the full-suite workflows, or `workflow_dispatch(runId)` | success on a release branch, or the label run | Downloads per-shard timings, merges, opens a **draft PR** to `{{DEFAULT_INTEGRATION_BRANCH}}` if they drifted |
-| `prune-playwright-reports.yml` | weekly cron + dispatch | dispatch defaults `dry_run: true` | Deletes gh-pages report dirs older than 30 days. Protects `.github`, `.gitignore`, `.nojekyll`. Refuses if the tree listing is truncated. |
-| `prod-smoke.yml` | `repository_dispatch` (post backend prod deploy) + dispatch | none | `-c playwright.prod-smoke.config.ts` |
+| `{{APPROVAL_WORKFLOW}}` | `pull_request_review: submitted` | at least 1 approval | Adds label **`approved`** |
+| `{{SMOKE_WORKFLOW}}` -> `compute-tags` + `smoke-test` | PR `labeled/reopened/synchronize`, **not** into the release branches | has `approved` AND not `skip tests` / `{{LEGACY_RUNNER_FULL_LABEL}}` / `{{FULL_REGRESSION_LABEL}}` | `{{DIFF_TAGS_SCRIPT}} --base-tag=@smoke` -> base workflow with `grepTags` (smoke shard count) |
+| `{{SMOKE_WORKFLOW}}` -> `full-test` | same | label `{{LEGACY_RUNNER_FULL_LABEL}}` and not `skip tests` | base workflow, full |
+| `{{SMOKE_WORKFLOW}}` -> `playwright-full` | same | label `{{FULL_REGRESSION_LABEL}}` and not `skip tests` | base workflow, full |
+| `{{FULL_REGRESSION_WORKFLOW}}` | PR `opened/reopened/synchronize` **into the release branches** | not `skip tests` | base, full, **`collectTimings: true`** |
+| `{{RELEASE_TESTS_WORKFLOW}}` | PR labeled, not into release branches | `{{RELEASE_TESTS_LABEL}}` and not `skip tests`; concurrency cancel-in-progress | base full + timings, **and** full Cypress |
+| `{{INTEGRATION_WORKFLOW}}` | PR labeled/sync, not into release branches | label `{{INTEGRATION_LABEL}}` | Full multi-service stack (backend image + integration gateway + message queue + S3 emulator + vendor mocks + Vite), `playwright test --project=integration` |
+| `{{TIMINGS_REFRESH_WORKFLOW}}` | `workflow_run` completed of the full-suite workflows, or `workflow_dispatch(runId)` | success on a release branch, or the label run | Downloads per-shard timings, merges, opens a **draft PR** to `{{DEFAULT_INTEGRATION_BRANCH}}` if they drifted |
+| `{{REPORT_PRUNE_WORKFLOW}}` | weekly cron + dispatch | dispatch defaults `dry_run: true` | Deletes gh-pages report dirs older than 30 days. Protects `.github`, `.gitignore`, `.nojekyll`. Refuses if the tree listing is truncated. |
+| `{{PROD_SMOKE_WORKFLOW}}` | `repository_dispatch` (post backend prod deploy) + dispatch | none | `-c {{PROD_SMOKE_CONFIG}}` |
 | `<sibling-app>-release-gate.yml` | PR into release branches + dispatch | not `skip tests` | Dispatches the sibling report app's own Playwright run in its repo and polls it (cross-repo gate) |
 
-### 4.2 The reusable base: `playwright-base.yml`
+### 4.2 The reusable base: `{{BASE_WORKFLOW}}`
 
 - **Inputs:** `grepTags` (empty = full run), `collectCoverage` (default **true**), `collectTimings` (default false). Secrets: a repo token, a registry token, the backend secret key, and the frontend's third-party API tokens.
 - **Matrix:** a small shard count when `grepTags` is set, a larger one otherwise. `fail-fast: false`, `timeout-minutes: 60`.
@@ -341,7 +341,7 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
   8. `yarn playwright install chromium`;
   9. run:
      - smoke: `yarn playwright test --project=chromium --grep "$grepTags" --shard=i/N`;
-     - full: `node bin/split-playwright-shards.mjs --shard=i --total=N` gives a file list, then `yarn playwright test --project=chromium <files>`; an empty list is a warning and exit 0;
+     - full: `node {{SHARD_SPLITTER_SCRIPT}} --shard=i --total=N` gives a file list, then `yarn playwright test --project=chromium <files>`; an empty list is a warning and exit 0;
   10. upload `blob-report/` as `playwright-report-<i>`;
   11. timings artifact when collecting;
   12. `.nyc_output/` coverage artifact.
@@ -350,7 +350,7 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
 - **`merge-reports` job** (`if: always()`):
   1. downloads `playwright-report-*` -> `npx playwright merge-reports --reporter html`;
   2. uploads `playwright-report-merged`;
-  3. **publishes to gh-pages** under `<UTC ts>_<sanitized branch>_<uuid>_merged` with `keep_files: true`;
+  3. **publishes to gh-pages** under a unique per-run folder (timestamp, branch and a run id) with `keep_files: true`;
   4. writes the Pages URL to the step summary.
 
   The gh-pages copy survives re-runs that overwrite artifacts, which makes it the forensics record.
@@ -360,18 +360,18 @@ This spec touches every layer: a named seed, a tenant switch, the POM, a UI acti
 
 - **Designed:**
   - a `SpecTimingReporter` sums per-file durations;
-  - shard partials are merged by `bin/merge-playwright-timings.mjs` (replace-with-merged + drift stats);
-  - `bin/split-playwright-shards.mjs` walks `playwright/tests` on disk, weights files from `playwright_timings.json`, falls back to the median weight (or 30 s if there are no timings), and greedy-LPT bin-packs.
+  - shard partials are merged by `{{TIMINGS_MERGE_SCRIPT}}` (replace-with-merged + drift stats);
+  - `{{SHARD_SPLITTER_SCRIPT}}` walks `playwright/tests` on disk, weights files from `{{TIMINGS_FILE}}`, falls back to the median weight (or a fixed default weight if there are no timings), and greedy-LPT bin-packs.
   - The splitter walks `tests/integration/` too. Those files occupy bin slots and contribute no tests under `--project=chromium`.
-- **Actual:** `playwright_timings.json` is `{"durations": []}`, untouched since the commit that introduced the mechanism. Every file gets the 30 s default, so LPT degenerates to **round-robin over the alphabetically sorted file list**. Adding or removing one spec file reshuffles every later file's shard.
+- **Actual:** `{{TIMINGS_FILE}}` is empty and has never been refreshed. Every file gets the same default weight, so LPT degenerates to **round-robin over the alphabetically sorted file list**. Adding or removing one spec file reshuffles every later file's shard.
   - **[HYPOTHESIS]:** the refresh workflow has opened draft PRs, but none was merged.
-- **Diff-scoped tags (smoke).** `bin/compute-diff-tags.mjs` unions `@smoke` with feature tags whose globs match the PR diff, and fails open to `@smoke`. The tag map contains only a comment, so the smoke grep is always exactly `@smoke`.
+- **Diff-scoped tags (smoke).** `{{DIFF_TAGS_SCRIPT}}` unions `@smoke` with feature tags whose globs match the PR diff, and fails open to `@smoke`. The tag map contains only a comment, so the smoke grep is always exactly `@smoke`.
 
 ### 4.4 Smoke vs full regression
 
 - **`@smoke`** = "runs on every PR". Untagged = full regression only.
 - **Smoke** runs only after **one approval** (label `approved`). A PR whose smoke jobs show "skipped" has **never run its specs**.
-- **Full regression** runs on PRs into the release branches and on labels (`full_playwright_only`, `full_cypress`, `run-release-tests`). **Observation:** `full_cypress` also triggers a full *Playwright* run, while the suite doc describes it as Cypress only. Intent was not checked.
+- **Full regression** runs on PRs into the release branches and on labels (`{{FULL_REGRESSION_LABEL}}`, `{{LEGACY_RUNNER_FULL_LABEL}}`, `{{RELEASE_TESTS_LABEL}}`). **Observation:** `{{LEGACY_RUNNER_FULL_LABEL}}` also triggers a full *Playwright* run, while the suite doc describes it as Cypress only. Intent was not checked.
 - **`skip tests`** suppresses every Playwright job.
 - **CI tests the PR merge ref.** A rerun replays the recorded merge SHA, so a fix on the base branch needs a fresh run (close/reopen).
 - **The backend under test is the floating backend image, not the PR's backend.** A broken backend integration branch reddens every frontend PR, and release reds must be A/B'd by **image digest**.
@@ -429,7 +429,7 @@ Its sections, in order:
   4. no locators in specs;
   5. reuse before writing;
   6. no standalone page-loads test, merge shared-setup tests;
-  7. **no comments**, except a user-behaviour comment carrying a ticket link (never explain app source; provenance goes to the PR or ticket);
+  7. **no comments**, a flat ban (never explain app source; provenance goes to the PR or ticket);
   8. `@smoke` semantics;
   9. "What to Assert" pointers;
 - CI behaviour;
@@ -467,7 +467,7 @@ All of these were user-level files on the reference host, not in the repo. The k
 | `testing-a-feature-end-to-end` (+ `references/`) | A multi-stage pipeline: intake -> intent -> plan/consolidate -> backend + seed + mock -> author -> assertion depth -> run/triage -> bug hunt (fixme + finding, never green-match) -> open PR (never merge) -> quality loop with independent reviewers -> **interaction and branch completeness check** by an independent worker -> final report -> file bugs. Run-state checkpoint for respawns; operator gates table. | Tracker, intent source, author identity, backend worktrees. The reference copy said "minimal comments"; the kit copy uses the flat ban. |
 | `analyzing-test-tickets` | Ticket or chat thread -> issue neighbourhood (relations, siblings, open bugs) -> intent context -> discussion search -> **Feature Analysis Report** template (overview, ACs, linked-ticket ACs, decisions, dependencies, suggested scenarios). | Tracker/chat/KB tool names, project key. |
 | `sweeping-releases-for-e2e-coverage-gaps` | Freshness gate (fetch first, state the SHA) -> **enumerate from the app-source git diff between tags, not the tracker** -> trackers and intent KB for intent only -> rule out no-browser-surface items *with a recorded reason* -> rank (cost is a sort, never a filter) -> report. | Tag scheme, dual tracking. |
-| `editing-backend-seeds-and-mocks` (not in this kit) | Iron rule: no mutation in a **shared** checkout without a coordinator ack obtained first; author in your **own** backend worktree on a companion branch; never merge; never mix repos in one commit; mocks are born in the mocks repo; restart then re-prove. Its reference holds the seed and mock authoring rules (3.2, 3.5). | Repo paths, coordinator messaging. |
+| `editing-backend-seeds-and-mocks` | Iron rule: no mutation in a **shared** checkout without a coordinator ack obtained first; author in your **own** backend worktree on a companion branch; never merge; never mix repos in one commit; mocks are born in the mocks repo; restart then re-prove. Its reference holds the seed and mock authoring rules (3.2, 3.5). | Repo paths, coordinator messaging. |
 
 ---
 
@@ -499,9 +499,9 @@ The setup mostly splits cleanly into "replicate as-is" and "re-derive". **But se
 | C14 | Fail-open `chromium` project + self-scoped side projects | Only matters if there are two or more projects with different stacks | none | Keep it as the default; it is free. |
 | C15 | CI backend = prebuilt service container | A floating-tag test image built by the backend repo | A runnable backend artifact in test mode, ideally **pinned by digest or version** | Build the backend from source in the job, or run docker-compose of the backend repo at a pinned ref. Avoid floating tags. |
 | C16 | Mock definitions from a separate repo | The mocks repo checked out per job | A single canonical home for mock environments | A `mocks/` folder in a dedicated repo, or in the backend repo; **not** vendored into the frontend. |
-| C17 | Smoke gated on the `approved` label (added after 1 review) | `check-if-approved.yml` + label conventions | Repo labels + a token able to label | Run smoke on every PR push (simpler, more minutes). |
+| C17 | Smoke gated on the `approved` label (added after 1 review) | `{{APPROVAL_WORKFLOW}}` + label conventions | Repo labels + a token able to label | Run smoke on every PR push (simpler, more minutes). |
 | C18 | gh-pages report hosting + pruning | GitHub Pages enabled on `gh-pages`; a Pages deploy action | Pages enabled | Upload the merged HTML as an artifact only. |
-| C19 | Runtime-balanced shards | `playwright_timings.json` + reporter + splitter + refresh PR | none | Native `--shard=i/N`. **Note:** the full machinery runs as round-robin in the reference (4.3). |
+| C19 | Runtime-balanced shards | `{{TIMINGS_FILE}}` + reporter + splitter + refresh PR | none | Native `--shard=i/N`. **Note:** the full machinery runs as round-robin in the reference (4.3). |
 | C20 | Istanbul coverage from e2e | A coverage env flag + Vite Istanbul plugin + `window.__coverage__` + nyc + CI warm-up (`global-setup.ts`) | Instrumentable build | Omit initially. |
 | C21 | Admin-panel (server-rendered) POs on the backend origin | A server-rendered admin + a passwordless sign-in route gated on `{{REVIEW_APP_FLAG}}` | Only if the product has a server-rendered admin | Treat it as a second origin with its own login helper. |
 | C22 | Intent oracle for coverage reviews | A product-knowledge wiki + `{{INTENT_SKILL}}` | Some written product intent (PRD, specs, ACs) | Tickets' ACs plus designs; flag where intent is missing. |
@@ -535,10 +535,10 @@ The setup mostly splits cleanly into "replicate as-is" and "re-derive". **But se
 | `approved`-label gating | Saves minutes on unreviewed PRs | "Skipped is not green" confusion | Skipped smoke checks were mistaken for passes. |
 | Runtime-balanced splitter + timings reporter + auto-refresh PR | Balanced shards on a large suite | 3 scripts + 1 workflow + a refresh PR someone must merge | The timings file is **empty**, so the splitter is round-robin; no benefit was realised. |
 | Diff-scoped smoke tags | Run feature tags touched by the diff | A mapping file to maintain | The mapping is **empty**, so the grep is always `@smoke`. |
-| gh-pages publishing + weekly prune | Permanent per-attempt report links | Pages config, a prune job with truncation guards | Proven useful for forensics: it recovered an attempt whose artifacts a re-run had overwritten. |
+| gh-pages publishing + weekly prune | Permanent per-attempt report links | Pages config, a prune job with truncation guards | Useful for forensics: a published report outlives a re-run that replaces the run artifacts. |
 | E2e coverage (Istanbul + nyc + PR comment + CI warm-up) | Coverage signal | Instrumented cold compile -> needed a `global-setup` warm-up | `global-setup.ts` exists only for this. |
-| Label-gated multi-service project workflow | Integration e2e | Heaviest job; near runner disk limits | The integration workflow is the largest in the repo and has hit runner disk exhaustion. |
-| Post-deploy prod smoke (own config, read-only) | Production canary | Canary data in prod | `playwright.prod-smoke.config.ts`, `prodSmoke/CLAUDE.md`. |
+| Label-gated multi-service project workflow | Integration e2e | Heaviest job; near runner disk limits | Size the runner for it: a full multi-service stack can exhaust a hosted runner's disk. |
+| Post-deploy prod smoke (own config, read-only) | Production canary | Canary data in prod | `{{PROD_SMOKE_CONFIG}}`, `prodSmoke/CLAUDE.md`. |
 | Cross-repo release gate (dispatch + poll) | Couples a sibling app's suite to release | Cross-repo token, polling | The sibling report-app gate. |
 
 **Recommendation:** ship minimal CI with native `--shard`, a digest-pinned backend and test-folder lint. Add gh-pages publishing next, because forensics value is high and cost is low. Add the splitter only once per-shard wall time is long and native sharding is measurably skewed **[judgement, not measured]**.
@@ -551,7 +551,7 @@ These were not determined when the reference was studied. Treat the related stat
 
 1. **No CI history was read.** Whether timings-refresh PRs were ever opened, why the timings file is still empty, real shard durations, flake rates, and how often smoke is skipped are all unmeasured.
 2. **The reason for `workers: 1`** is not written anywhere. Truncation-safety is a **[HYPOTHESIS]**.
-3. **Whether the `full_cypress` label triggering a full Playwright run is intended** or a leftover. The suite doc disagrees with the workflow.
+3. **Whether the `{{LEGACY_RUNNER_FULL_LABEL}}` label triggering a full Playwright run is intended** or a leftover. The suite doc disagrees with the workflow.
 4. **How the CI backend image is built** was not read.
 5. **The mocks repo itself** was not read; statements about it come from the seeds-and-mocks guide and the workflow files.
 6. **The integration workflow and its folder doc** were skimmed, not read line by line.

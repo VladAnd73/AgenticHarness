@@ -19,15 +19,15 @@ Parent: [`../CLAUDE.md`](../CLAUDE.md).
 - The page object is shared: [`../pageObjects/pages/ReportApp/`](../pageObjects/pages/ReportApp/CLAUDE.md).
 
 ## How it is wired
-- **Own config, outside the regular suite:** `playwright.prod-smoke.config.ts` (repo root) has
+- **Own config, outside the regular suite:** `{{PROD_SMOKE_CONFIG}}` (repo root) has
   `testDir: ./playwright/prodSmoke`, one `prod-smoke` chromium project (desktop viewport, `en-US`),
   `retries: 1`, `trace: retain-on-failure`, **no `webServer`, no `globalSetup`, no `playwright/.env`**.
   Because this folder is outside `playwright/tests`, neither the default `playwright.config.ts` projects
-  nor `bin/split-playwright-shards.mjs` ever collect it.
+  nor `{{SHARD_SPLITTER_SCRIPT}}` ever collect it.
 - **Specs import `test` from `@playwright/test`, NOT from `~/playwright/support/fixtures`.** The suite
   fixture's auto `forEachTest` seeds `clean`, purges mocks and creates/logs in an admin against a test
   backend - none of which may run here.
-- **CI:** `.github/workflows/prod-smoke.yml`, triggered by `repository_dispatch`
+- **CI:** `.github/workflows/{{PROD_SMOKE_WORKFLOW}}`, triggered by `repository_dispatch`
   (`event_type: prod-smoke`, sent by the backend repo's deploy workflow after a production deploy) or by
   hand with `workflow_dispatch`. Its `run-name` carries a `correlation_id` from the payload (built from
   the deployed commit and release versions), or `manual-{run_id}` for a manual run; the backend finds the
@@ -50,7 +50,7 @@ Parent: [`../CLAUDE.md`](../CLAUDE.md).
 ## Running it
 ```bash
 yarn playwright install chromium
-yarn playwright test -c playwright.prod-smoke.config.ts
+yarn playwright test -c {{PROD_SMOKE_CONFIG}}
 ```
 No backend, no Vite, no `playwright/.env`. It reaches production, so run it only when you mean to.
 

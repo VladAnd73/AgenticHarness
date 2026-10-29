@@ -10,12 +10,12 @@ console or a banner. Parent: [`../CLAUDE.md`](../CLAUDE.md).
 Selected via `--project=integration`. The integration project is always registered in
 `playwright.config.ts`, but its own `testDir` self-scopes it and the `chromium` project `testIgnore`s this
 folder, so the always-on main suite never collects these specs nor tries to seed against a stack that
-isn't booted. `playwright-integration.yml` runs `--project=integration`.
+isn't booted. `{{INTEGRATION_WORKFLOW}}` runs `--project=integration`.
 
 > **Cross-repo dependencies and first-run status.** <State which backend seeds and gateway boot script
 > this harness needs and whether each is on its base branch.> The workflow pins the gateway checkout by
 > commit deliberately - it hands secrets to code it then executes - and is gated on the
-> `integration_tests` label. **Until the workflow has a recorded green run, treat a first red run as a
+> `{{INTEGRATION_LABEL}}` label. **Until the workflow has a recorded green run, treat a first red run as a
 > possible harness defect, not a regression.** When you add an integration spec, check what it needs
 > against that workflow, and state any dependency that is not yet on a base branch in the PR.
 
@@ -91,9 +91,9 @@ integration-suite-specific facts that matter when you touch these specs:
   gateway stack is reached over the host network (`localhost`). PG/Redis use unix sockets, so they are
   netns-independent.
 - **Per-test gateway DB reset follows the gateway's topology.** The `resetIntegrationGateway` fixture
-  runs the gateway repo's own `docker/e2e/reset-db.sh` - `docker exec`ing the container by default, or
-  directly in a checkout when `INTEGRATION_GATEWAY_REPO` is set. Set it (with the test env + the
-  `GATEWAY_DB_URL` / `GATEWAY_SECONDARY_DB_URL` its `{{SERVICES_WRAPPER}}` prints) whenever the gateway
+  runs the gateway repo's own `{{GATEWAY_RESET_SCRIPT}}` - `docker exec`ing the container by default, or
+  directly in a checkout when `{{GATEWAY_REPO_ENV}}` is set. Set it (with the test env + the
+  `{{GATEWAY_DB_URL_ENV}}` / `{{GATEWAY_SECONDARY_DB_URL_ENV}}` its `{{SERVICES_WRAPPER}}` prints) whenever the gateway
   runs **natively** rather than in Docker - a run whose network namespace cannot reach host-network
   containers has no container to exec into. Either way it is the same script; never add a second reset
   implementation.
@@ -130,7 +130,7 @@ shared base auto-fixture (`playwright/support/fixtures.ts`), gated on `{{VENDOR_
 no-ops on every non-integration run, so each test's outbound-call assertions see only its own traffic.
 It drives the backend and the vendor B mock over absolute-URL API contexts and asserts the placed order
 through the real UI (Vite). No backend-console `eval`: the order's instance uuid + preview token come
-from the app's own GraphQL (the bundle-instances query + the Order-Management preview-token mutation).
+from the app's own GraphQL (the bundle-instances query + the preview-token mutation).
 
 ## Seed (committed, not ad-hoc)
 

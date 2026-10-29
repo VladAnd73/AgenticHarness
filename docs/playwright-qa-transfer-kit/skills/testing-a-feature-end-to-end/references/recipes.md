@@ -55,9 +55,8 @@ runner/backend skills own the full how-to - this file is the quick reference for
 - Tokens rotate - check `gh auth status` under the wrapper before relying on it. A package-registry token
   for `yarn install` goes in the USER-level npmrc (`npm config set --location user`), NEVER
   `--location project` (that writes the token into the tracked `.npmrc`).
-- Locale gotcha: a production build can rewrite tracked compiled LinguiJS catalogs
-  (`src/locales/*/messages.ts`) - `git checkout -- src/locales/*/messages.ts` after any build; never commit
-  them.
+- Locale gotcha: a production build can rewrite tracked compiled `{{I18N_LIBRARY}}` catalogs
+  (`<compiled catalogs path>`) - restore them with `git checkout --` after any build; never commit them.
 
 ## CI triage (stage 7)
 

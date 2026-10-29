@@ -9,17 +9,17 @@ Tiers:
 
 Install each file under the new project's e2e root as `CLAUDE.md` (and each `*.tmpl.mdc` as `*.mdc` in the editor's rules folder). Links inside the bundle already use the installed names.
 
-- generic: 9 files
-- mixed: 26 files
+- generic: 8 files
+- mixed: 27 files
 - project-specific: 60 files
 
 | File | Tier | Placeholders |
 |---|---|---|
 | `CLAUDE.tmpl.md` | mixed | BACKEND_PORT, BACKEND_REPO, BACKEND_URL, BACKEND_URL_ENV, E2E_ROOT, FRONTEND_ENV_VARS, FRONTEND_PORT, PROJECT_NAME, TOKEN_STORAGE_KEY |
-| `editor-rules/bestpractices.tmpl.mdc` | generic | TRACKER |
+| `editor-rules/bestpractices.tmpl.mdc` | mixed | FORMS_LIBRARY, I18N_LIBRARY, TRACKER |
 | `editor-rules/documentation.tmpl.mdc` | generic | E2E_ROOT |
 | `editor-rules/testing.tmpl.mdc` | mixed | E2E_ROOT |
-| `playwright/CLAUDE.tmpl.md` | mixed | ASYNC_TEST_FLAG, BACKEND_BOOT_COMMAND, BACKEND_REPO, BACKEND_URL, BACKEND_URL_ENV, DEFAULT_INTEGRATION_BRANCH, DEVSHELL, DRAIN_COMMAND, FRONTEND_PORT, FRONTEND_URL, HOST_OS, INTEGRATION_PIPELINE, PROJECT_NAME, RELEASE_BRANCH_PATTERN, SEED_DIR, SEED_ENDPOINT, VENDOR_A, VENDOR_B |
+| `playwright/CLAUDE.tmpl.md` | mixed | ASYNC_TEST_FLAG, BACKEND_BOOT_COMMAND, BACKEND_REPO, BACKEND_URL, BACKEND_URL_ENV, DEFAULT_INTEGRATION_BRANCH, DEVSHELL, DRAIN_COMMAND, FRONTEND_PORT, FRONTEND_URL, FULL_REGRESSION_LABEL, FULL_SHARDS, HOST_OS, INTEGRATION_PIPELINE, INTEGRATION_WORKFLOW, LEGACY_RUNNER_FULL_LABEL, PROD_SMOKE_CONFIG, PROD_SMOKE_WORKFLOW, PROJECT_NAME, RELEASE_BRANCH_PATTERN, SEED_DIR, SEED_ENDPOINT, SHARD_SPLITTER_SCRIPT, SMOKE_SHARDS, TIMINGS_FILE, TIMINGS_REFRESH_WORKFLOW, VENDOR_A, VENDOR_B |
 | `playwright/data/CLAUDE.tmpl.md` | generic | BACKEND_REPO, SEED_ENDPOINT |
 | `playwright/data/factory/CLAUDE.tmpl.md` | generic | none |
 | `playwright/data/factory/frozenDomain/CLAUDE.tmpl.md` | project-specific | none |
@@ -76,13 +76,13 @@ Install each file under the new project's e2e root as `CLAUDE.md` (and each `*.t
 | `playwright/pageObjects/pages/Orders/CLAUDE.tmpl.md` | project-specific | none |
 | `playwright/pageObjects/pages/Records/CLAUDE.tmpl.md` | project-specific | none |
 | `playwright/pageObjects/pages/ReportApp/CLAUDE.tmpl.md` | mixed | CANARY_IDS, PROD_SMOKE_TARGET, PROJECT_NAME |
-| `playwright/prodSmoke/CLAUDE.tmpl.md` | mixed | CANARY_IDS, DEFAULT_INTEGRATION_BRANCH, PROD_SMOKE_TARGET |
-| `playwright/support/CLAUDE.tmpl.md` | mixed | BACKEND_PORT, CONSENT_STORAGE_KEY, DRAIN_COMMAND, MOCK_TOOL, REVIEW_APP_FLAG, SEED_ENDPOINT, TENANT_STORAGE_KEY, TOKEN_STORAGE_KEY, VENDOR_A, VENDOR_A_MOCK_URL_ENV, VENDOR_B, VENDOR_B_MOCK_PORT, VENDOR_B_MOCK_URL_ENV |
+| `playwright/prodSmoke/CLAUDE.tmpl.md` | mixed | CANARY_IDS, DEFAULT_INTEGRATION_BRANCH, PROD_SMOKE_CONFIG, PROD_SMOKE_TARGET, PROD_SMOKE_WORKFLOW, SHARD_SPLITTER_SCRIPT |
+| `playwright/support/CLAUDE.tmpl.md` | mixed | BACKEND_PORT, CONSENT_STORAGE_KEY, DRAIN_COMMAND, GATEWAY_COMPOSE_PROJECT_ENV, GATEWAY_CONTAINER_ENV, GATEWAY_DB_URL_ENV, GATEWAY_REPO_ENV, GATEWAY_RESET_SCRIPT, GATEWAY_SECONDARY_DB_URL_ENV, MOCK_TOOL, REVIEW_APP_FLAG, SEED_ENDPOINT, TENANT_STORAGE_KEY, TOKEN_STORAGE_KEY, VENDOR_A, VENDOR_A_MOCK_URL_ENV, VENDOR_B, VENDOR_B_MOCK_PORT, VENDOR_B_MOCK_URL_ENV |
 | `playwright/tests/account/CLAUDE.tmpl.md` | mixed | none |
 | `playwright/tests/account/users/CLAUDE.tmpl.md` | mixed | none |
 | `playwright/tests/auth/CLAUDE.tmpl.md` | mixed | PROJECT_NAME, TOKEN_STORAGE_KEY |
 | `playwright/tests/CLAUDE.tmpl.md` | mixed | INTEGRATION_PIPELINE, VENDOR_B |
-| `playwright/tests/integration/CLAUDE.tmpl.md` | mixed | ASYNC_TEST_FLAG, BACKEND_PORT, BACKEND_REPO, BACKEND_URL, BACKEND_URL_ENV, DEFAULT_INTEGRATION_BRANCH, DEVSHELL, FRONTEND_PORT, FRONTEND_URL, HOST_OS, INTEGRATION_PIPELINE, MOCKS_HOME, MOCK_TOOL, SEED_ENDPOINT, SERVICES_WRAPPER, VENDOR_B, VENDOR_B_MOCK_PORT, VENDOR_B_MOCK_URL_ENV |
+| `playwright/tests/integration/CLAUDE.tmpl.md` | mixed | ASYNC_TEST_FLAG, BACKEND_PORT, BACKEND_REPO, BACKEND_URL, BACKEND_URL_ENV, DEFAULT_INTEGRATION_BRANCH, DEVSHELL, FRONTEND_PORT, FRONTEND_URL, GATEWAY_DB_URL_ENV, GATEWAY_REPO_ENV, GATEWAY_RESET_SCRIPT, GATEWAY_SECONDARY_DB_URL_ENV, HOST_OS, INTEGRATION_LABEL, INTEGRATION_PIPELINE, INTEGRATION_WORKFLOW, MOCKS_HOME, MOCK_TOOL, SEED_ENDPOINT, SERVICES_WRAPPER, VENDOR_B, VENDOR_B_MOCK_PORT, VENDOR_B_MOCK_URL_ENV |
 | `playwright/tests/main/adminPanel/autoOrderAttempts/CLAUDE.tmpl.md` | project-specific | REVIEW_APP_FLAG |
 | `playwright/tests/main/adminPanel/CLAUDE.tmpl.md` | mixed | BACKEND_PORT, REVIEW_APP_FLAG, VENDOR_A |
 | `playwright/tests/main/adminPanel/failedItems/CLAUDE.tmpl.md` | project-specific | MOCK_TOOL, REVIEW_APP_FLAG, VENDOR_A, VENDOR_A_MOCK_PORT, VENDOR_A_MOCK_URL_ENV |
@@ -102,7 +102,7 @@ Install each file under the new project's e2e root as `CLAUDE.md` (and each `*.t
 | `playwright/tests/main/frozenDomain/topNavbar/CLAUDE.tmpl.md` | project-specific | TRACKER |
 | `playwright/tests/main/frozenDomain/topNavbar/createNew/CLAUDE.tmpl.md` | project-specific | TRACKER |
 | `playwright/tests/main/item/CLAUDE.tmpl.md` | project-specific | DRAIN_COMMAND, MOCKS_HOME, MOCK_TOOL, VENDOR_A, VENDOR_A_MOCK_PORT, VENDOR_A_MOCK_URL_ENV |
-| `playwright/tests/main/item/details/budget/CLAUDE.tmpl.md` | project-specific | ROLES |
+| `playwright/tests/main/item/details/restrictedField/CLAUDE.tmpl.md` | project-specific | ROLES |
 | `playwright/tests/main/item/details/CLAUDE.tmpl.md` | project-specific | none |
 | `playwright/tests/main/item/details/edit/CLAUDE.tmpl.md` | project-specific | none |
 | `playwright/tests/main/login/CLAUDE.tmpl.md` | project-specific | none |

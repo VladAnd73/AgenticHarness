@@ -184,7 +184,7 @@ The inline `//` notes above annotate this prompt only. Real specs carry no comme
 
 ### A7. Code hygiene rules
 
-- **No comments in test code**: specs, POs and support files. The single exception is a comment describing *user behaviour* that carries a *ticket link*.
+- **No comments in test code**: specs, POs and support files. A flat ban with no exceptions; prose goes to the PR, the ticket or the folder `CLAUDE.md`.
   - Never explain product source in tests (component names, props, render timing, test-id schemes).
   - Provenance (tickets, SHAs, root-cause analysis) goes in the PR or the ticket.
   - Conventions go in the folder `CLAUDE.md`.
@@ -272,8 +272,8 @@ Each binding below names the **role** it played in the reference, the **precondi
 | B11 | **Product-intent oracle** used by coverage reviews and bug hunts (reference: a product-knowledge wiki). Code shows how the product *does* behave, the KB how it *should*; on conflict, flag the gap. | Some written intent | Ticket ACs + designs; flag missing intent | `{{INTENT_SOURCE}}` |
 | B12 | **Tracker** for bug filing and AC reading (reference: one issue tracker, with some work dual-tracked in a second one) | none | none | `{{TRACKER}}`, `{{TRACKER_PROJECT_KEY}}` |
 | B13 | **Local runtime:** a pinned dev shell with a chromium matching the Playwright version (reference: a NixOS flake devshell), a per-consumer isolated backend (own DB/cache/port derived from a unique key), and one dev-server-plus-run per port | Host-specific | Install browsers with `npx playwright install chromium` | `{{HOST_OS}}`, `{{LOCAL_BACKEND_BOOT}}` |
-| B14 | **Report hosting:** merged HTML on GitHub Pages under `<UTC ts>_<branch>_<uuid>_merged`, pruned weekly at 30 days | Pages enabled | Artifact-only | `{{REPORT_HOSTING}}` |
-| B15 | **PR label vocabulary:** `approved` (auto-added after 1 review; gates smoke), `skip tests`, `full_playwright_only`, `run-release-tests`, `<integration>_tests` | Repo labels + a token able to label | Run smoke on every push | `{{LABEL_POLICY}}` |
+| B14 | **Report hosting:** merged HTML on GitHub Pages under a unique per-run folder, pruned on a schedule | Pages enabled | Artifact-only | `{{REPORT_HOSTING}}` |
+| B15 | **PR label vocabulary:** `approved` (auto-added after 1 review; gates smoke), `skip tests`, `{{FULL_REGRESSION_LABEL}}`, `{{RELEASE_TESTS_LABEL}}`, `{{INTEGRATION_LABEL}}` | Repo labels + a token able to label | Run smoke on every push | `{{LABEL_POLICY}}` |
 
 **Couplings you must not miss:**
 - **B1 -> A6 rule 5.** The ban on DB and console reads is livable only because seeds give a sanctioned channel for *waiting*: a status-getter seed. Without B1 you still need a sanctioned wait channel, or "UI is the only oracle" degenerates into unbounded UI polling.
@@ -384,7 +384,7 @@ Pick the first `{{FIRST_JOURNEYS}}` item that touches a third party.
 - a script (`find <e2e-root> -type d | while read d; do test -f "$d/CLAUDE.md" || echo MISSING $d; done`) prints nothing;
 - every `CLAUDE.md` ends with one of the two footers;
 - the root file's fixture list matches `support/fixtures.ts` exactly. Verify by grep, not by eye;
-- `grep -rn '{{' <e2e-root>` finds no unresolved placeholder.
+- `grep -rnE '\{\{[A-Z0-9_]+\}\}' <e2e-root>` finds no unresolved placeholder.
 
 ### Phase 5: Agent skills (workflow layer)
 
@@ -398,7 +398,7 @@ Pick the first `{{FIRST_JOURNEYS}}` item that touches a third party.
 | `investigating-e2e-failures` | Start from report/trace; localise the layer in order (browser -> seed/login -> app load -> assertion); classify (regression / stale selector / backend contract gap / seed-data / flaky / local-env mismatch); `--repeat-each=5`; never fix with a timeout or sleep | Commands |
 | `reviewing-e2e-coverage` + the report-only agent `senior-qa-e2e-reviewer` | Rubric [Presence-only] / [Shallow] / [Deep]; all-effects; own-API read = Shallow; round-trip = blind; fixture-can't-produce = gap; full CRUD; report shape: sources -> feature model -> per-spec audit -> coverage matrix -> prioritised backlog (WHAT / WHERE / ASSERTION / SEED) -> gaps. Guardrails: no edits, no git writes, tickets read-only. | Intent source (B11) |
 | `qa-e2e-test-only-changes` | Never edit product source to pass a test; document app fixes for devs; test-side is not shortcut-side | none |
-| `editing-backend-seeds-and-mocks` (not included in this kit; write it from A8 and A9) | Shared checkouts need a coordinator ack before any mutation; authoring happens on your own branch or worktree; never mix repos in one commit; mocks are born in the mocks home; restart and re-prove; seed and mock authoring rules (A8, A9) | Repo paths |
+| `editing-backend-seeds-and-mocks` | Shared checkouts need a coordinator ack before any mutation; authoring happens on your own branch or worktree; never mix repos in one commit; mocks are born in the mocks home; restart and re-prove; seed and mock authoring rules (A8, A9) | Repo paths |
 | `testing-a-feature-end-to-end` | One worker runs the pipeline: intake -> intent -> plan (consolidate, full CRUD, full effect-set) -> backend/seed/mock -> author -> assertion depth -> run/triage -> bug hunt (fixme + finding) -> PR (never merge) -> independent review loop -> **independent interaction and branch completeness check** -> report -> file bugs. It uses the flat no-comment rule (A7). | Tracker, intent source |
 | `analyzing-test-tickets` | Ticket -> neighbourhood (relations, siblings, open bugs in the area, linked tickets' ACs) -> intent -> discussion -> a Feature Analysis Report with suggested scenarios | Tracker/chat tools |
 | `sweeping-releases-for-e2e-coverage-gaps` | Fetch first and state the SHA; **enumerate shipped work from the git diff of product source between release tags, never from the tracker**; trackers for intent only; exclusions recorded with a reason; cost sorts, never filters | Tag scheme |

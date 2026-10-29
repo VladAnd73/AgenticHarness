@@ -32,7 +32,7 @@ Use this doc in two ways:
 ## 3. Suite structure and code
 
 16. **Consolidate tests that share seed and setup.** Seeding, sign-in and navigation are the slow, flaky part. No standalone "page loads" test: assert list content inline at the top of a functional test through a reusable page-object helper.
-17. **No comments in test code.** Prose goes to the PR, the ticket or the folder `CLAUDE.md`. The single exception is a comment describing user behaviour that carries a ticket link.
+17. **No comments in test code.** Prose goes to the PR, the ticket or the folder `CLAUDE.md`. The ban is flat: no exception for any kind of comment.
 18. **Test code must not import app runtime barrels.** One bad import kills the whole import chain, and Playwright reports "No tests found". Keep suite-own, dependency-free util leaves.
 19. **Settle any Playwright API question from `node_modules`** (the installed version's `.d.ts` and lib), not from memory or a reviewer's recollection.
 20. **Code review flags seed, mock or test changes made only to pass an assertion.** A fixture bent to match the code is a rigged test.

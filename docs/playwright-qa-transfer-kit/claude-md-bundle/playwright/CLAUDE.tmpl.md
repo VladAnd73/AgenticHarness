@@ -8,7 +8,6 @@ that apply there. Start here, then follow the cross-links down into the folder y
 Primary focus for this repo is:
 - **Playwright e2e tests** (active development - smoke & regression suites)
 - **Cypress tests** (legacy - maintenance only; do NOT scaffold new Cypress specs)
-- **K6 performance tests** (secondary, in `k6/`)
 - **GitHub Actions CI** (workflows in `.github/workflows/`)
 - Occasionally adding `data-testid` attributes to frontend components
 
@@ -56,9 +55,9 @@ chosen mechanism: the CI workflow, the shard config and `playwright.config.ts` a
 
 ## The production smoke (`playwright/prodSmoke/`) - its own config
 
-`playwright.prod-smoke.config.ts` runs `playwright/prodSmoke/` **against production**, read-only, with no
+`{{PROD_SMOKE_CONFIG}}` runs `playwright/prodSmoke/` **against production**, read-only, with no
 backend, no Vite, no `globalSetup` and no suite fixtures. It sits outside `playwright/tests`, so neither
-project above nor the shard splitter ever collects it. CI runs it via `prod-smoke.yml` after a
+project above nor the shard splitter ever collects it. CI runs it via `{{PROD_SMOKE_WORKFLOW}}` after a
 backend production deploy. See [`prodSmoke/CLAUDE.md`](prodSmoke/CLAUDE.md).
 
 ## Running the environment
@@ -181,35 +180,34 @@ methods and asserts the END STATE the user sees.
    never fork a parallel copy.
 6. **No standalone "page loads" test.** Assert list/page content inline at the top of a functional test
    that loads the page anyway (e.g. a `validateXList(items)` helper). Merge tests that share seed+setup.
-7. **No comments in test code, with one exception.** A comment - in a spec, a page object or a support
-   file - may only describe **user behaviour**, and it must carry a **ticket link**; everything else gets
-   none. **Never explain `src/` in the tests**: not component or file names, props, render or query
+7. **No comments in test code. None.** Not in a spec, a page object or a support file, and with no
+   exception for user-behaviour notes or ticket links. **Never explain `src/` in the tests**: not component or file names, props, render or query
    timing, test-id schemes, routing rules. The tests reflect the app through the routes they drive, not
    through prose about the implementation. Provenance (tickets, commits, backend file references,
    root-cause analysis) goes in the PR or the ticket; conventions go in a folder `CLAUDE.md`; a
    workaround keeps its code and loses its explanation. Don't relocate the prose into test names,
-   `test.step` labels or variable names, and don't invent a ticket link to keep a comment alive.
+   `test.step` labels or variable names.
 8. `@smoke` = runs on every PR (smoke suite); untagged = full regression only.
 9. **What to assert** is governed by [`.cursor/rules/testing.mdc`](../.cursor/rules/testing.mdc), applied
    at the decision points: [`tests/CLAUDE.md`](tests/CLAUDE.md) and [`pageObjects/CLAUDE.md`](pageObjects/CLAUDE.md).
 
 ## CI behavior
-- PRs with the `approved` label run `@smoke` only (3 shards, native `--shard=X/Y`).
-- Label `full_playwright_only` -> all tests (7 shards, runtime-balanced via `playwright_timings.json`);
-  `full_cypress` -> all Cypress; `skip tests` -> skip.
+- PRs with the `approved` label run `@smoke` only ({{SMOKE_SHARDS}} shards, native `--shard=X/Y`).
+- Label `{{FULL_REGRESSION_LABEL}}` -> all tests ({{FULL_SHARDS}} shards, runtime-balanced via `{{TIMINGS_FILE}}`);
+  `{{LEGACY_RUNNER_FULL_LABEL}}` -> all Cypress; `skip tests` -> skip.
 - PR into the production branch or `{{RELEASE_BRANCH_PATTERN}}` -> all tests, runtime-balanced, and
   collects fresh timings.
 - CI does 2 retries (0 locally); reports are blob -> merged to HTML on GitHub Pages, HTML locally.
 - Every CI Playwright invocation passes `--project=chromium`, so the `integration` project never rides
-  along. It runs via its own `playwright-integration.yml` (needs the full stack) - see
+  along. It runs via its own `{{INTEGRATION_WORKFLOW}}` (needs the full stack) - see
   [`tests/integration/CLAUDE.md`](tests/integration/CLAUDE.md).
 
 ### Sharding & timings
-- **Full runs** (7 shards) partition by runtime using `playwright_timings.json` (repo root).
-  `bin/split-playwright-shards.mjs` reads per-file weights and greedy-LPT bin-packs into `--total` shards.
-- **Smoke runs** (3 shards) keep native `--shard=X/Y` (already well balanced; no timings needed).
+- **Full runs** ({{FULL_SHARDS}} shards) partition by runtime using `{{TIMINGS_FILE}}` (repo root).
+  `{{SHARD_SPLITTER_SCRIPT}}` reads per-file weights and greedy-LPT bin-packs into `--total` shards.
+- **Smoke runs** ({{SMOKE_SHARDS}} shards) keep native `--shard=X/Y` (already well balanced; no timings needed).
 - Weights auto-refresh: the full-regression workflow sets `collectTimings: true`; each shard writes
-  `playwright_timings-shard-N.json` via `SpecTimingReporter`; `playwright-timings-refresh.yml` fires on
+  a per-shard partial of `{{TIMINGS_FILE}}` via `SpecTimingReporter`; `{{TIMINGS_REFRESH_WORKFLOW}}` fires on
   that workflow's success, merges the shard artifacts, and opens a draft PR against
   `{{DEFAULT_INTEGRATION_BRANCH}}` with the updated file.
 - Manual refresh: run the timings-refresh workflow via `workflow_dispatch`, passing the full-regression

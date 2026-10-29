@@ -38,7 +38,7 @@ Use the pieces in this order. The prompt names the phase at which each other pie
    Rename each `CLAUDE.tmpl.md` to `CLAUDE.md` and each `*.tmpl.mdc` to `*.mdc` when you install it. Links inside the bundle already point at the installed names, so they resolve only after the rename. Folder names follow the reference's tree with its domain folders renamed (`main/`, `item/`, `member/`, `record/`, ...): map them onto the new project's own domains.
 4. **Phase 5 (agent skills).** Supply `skills/` and `agents/`. Bind each skill's placeholders to the Phase 0 answers and install them in the runtime's skill directory (for Claude Code, `.claude/skills/<name>/SKILL.md` and `.claude/agents/<name>.md`). Keep each skill's workflow and numbered rules; re-bind only the mechanics.
 
-Run the prompt's done-checks at the end of every phase. After installing, `grep -rn '{{' <installed paths>` must print nothing.
+Run the prompt's done-checks at the end of every phase. After installing, `grep -rnE '\{\{[A-Z0-9_]+\}\}' <installed paths>` must print nothing. (Lowercase `{{...}}` in the seeds-and-mocks authoring rules is mock-template syntax, not a placeholder.)
 
 ### Skills in this kit
 
@@ -52,9 +52,9 @@ Run the prompt's done-checks at the end of every phase. After installing, `grep 
 | `qa-e2e-test-only-changes` | The policy that QA fixes stay in test code and app fixes are documented for developers. |
 | `testing-a-feature-end-to-end` | One worker taking a feature from ticket to reviewed PR and filed bugs, with independent review and a completeness check. |
 | `analyzing-test-tickets` | Turning a ticket or chat thread into a Feature Analysis Report with suggested scenarios. |
+| `editing-backend-seeds-and-mocks` | The declare-then-ack governance for any edit outside your own worktree, plus the seed and mock authoring rules (dynamic mock data, routes from the vendor's own API docs). |
 | `sweeping-releases-for-e2e-coverage-gaps` | Finding shipped work without e2e coverage from the git diff between release tags. |
 
-Not included: a skill for editing backend seeds and mock environments (`editing-backend-seeds-and-mocks` in the skills' cross-references). Write it from sections A8 and A9 of the prompt; the walkthrough's 3.2 and 3.5 hold the authoring rules.
 
 ## The neutral vocabulary
 
@@ -91,6 +91,7 @@ Resolve every placeholder in Phase 0. A value with no counterpart on the new pro
 | `{{RELEASE_BRANCH_PATTERN}}` / `{{RELEASE_TAG_PATTERN}}` | Release branch glob; release tag scheme. |
 | `{{FRONTEND_CHECKOUT}}` / `{{BACKEND_CHECKOUT}}` | Local checkout paths of the two repos. |
 | `{{FRONTEND_STACK}}` / `{{BACKEND_STACK}}` / `{{APP_API_STYLE}}` | Framework and dev server; backend language and framework; REST or GraphQL. |
+| `{{FORMS_LIBRARY}}` / `{{I18N_LIBRARY}}` | The frontend's form library and its translation library. |
 | `{{UI_LIBRARY_PORTALS}}` | UI-library elements rendered in portals (drawers, menus). |
 | `{{ROLES}}` / `{{TENANCY_MODEL}}` | User roles; how tenants are modelled and switched. |
 | `{{FIRST_JOURNEYS}}` | The first three user journeys to cover. |
@@ -107,9 +108,10 @@ Resolve every placeholder in Phase 0. A value with no counterpart on the new pro
 | `{{MAP_TOKEN_ENV}}` | A frontend third-party token env var whose absence blanks a page. |
 | `{{HOST_OS}}` / `{{DEVSHELL}}` | Host OS; the pinned dev shell that provides a chromium matching the Playwright version. |
 | `{{SECRETS_WRAPPER}}` | The command that injects secrets into a process. |
-| `{{SERVICES_WRAPPER}}` | The per-worker DB/cache wrapper (the reference used a `bin/with-services` script). |
+| `{{SERVICES_WRAPPER}}` | The per-worker DB/cache wrapper script. |
 | `{{BACKEND_SETUP_COMMAND}}` / `{{BACKEND_BOOT_COMMAND}}` / `{{LOCAL_BACKEND_BOOT}}` | Preparing and booting the backend in test mode. |
 | `{{BACKEND_WORKTREE_ROOT}}` | Where per-worker backend worktrees live. |
+| `{{PORT_BASE}}` / `{{PORT_RANGE}}` | The first port and the size of the range a worker's backend port is hashed into from its slug. |
 | `{{SLUG}}` | The unique per-worker key that ports, DB names and sockets derive from. |
 | `{{HOST_STATE_DIR}}` / `{{REPORTS_DIR}}` / `{{SKILLS_DIR}}` | Host folders for run state, written reports and installed skills. |
 | `{{COORDINATOR_TELL}}` | How a worker messages its coordinator. |
@@ -141,6 +143,9 @@ Resolve every placeholder in Phase 0. A value with no counterpart on the new pro
 | `{{VENDOR_A_OUTBOUND_URL_ENV}}` | The backend env var that points its vendor-A client at the mock. |
 | `{{INTEGRATION_PIPELINE}}` / `{{INTEGRATION_PROJECT}}` | The async integration pipeline; the self-scoped Playwright project that covers it. |
 | `{{GATEWAY_BOOT_COMMAND}}` / `{{SUBSCRIBER_DAEMON_COMMAND}}` | Booting the integration gateway and the backend's message subscriber. |
+| `{{GATEWAY_RESET_SCRIPT}}` | The gateway repo's own script that truncates its test databases between tests. |
+| `{{GATEWAY_CONTAINER_ENV}}` / `{{GATEWAY_COMPOSE_PROJECT_ENV}}` / `{{GATEWAY_REPO_ENV}}` | Test-side env vars naming the gateway container, its compose project, or a native gateway checkout to run the reset in. |
+| `{{GATEWAY_DB_URL_ENV}}` / `{{GATEWAY_SECONDARY_DB_URL_ENV}}` | The gateway's database URL env vars, exported when the reset runs natively. |
 
 **CI and reporting**
 
@@ -148,6 +153,12 @@ Resolve every placeholder in Phase 0. A value with no counterpart on the new pro
 |---|---|
 | `{{CI_PLATFORM}}` / `{{CI_BACKEND_ARTIFACT}}` / `{{CONTAINER_REGISTRY}}` | The CI system; the pinned backend artifact CI runs; where it is published. |
 | `{{SMOKE_SHARDS}}` / `{{FULL_SHARDS}}` | Shard counts for the smoke and full runs. |
+| `{{BASE_WORKFLOW}}` | The reusable CI workflow every Playwright job calls. |
+| `{{APPROVAL_WORKFLOW}}` / `{{SMOKE_WORKFLOW}}` / `{{FULL_REGRESSION_WORKFLOW}}` / `{{RELEASE_TESTS_WORKFLOW}}` / `{{INTEGRATION_WORKFLOW}}` | The workflows that add the approval label, run smoke, run the full regression on release PRs, run the release suite on a label, and run the integration project. |
+| `{{TIMINGS_REFRESH_WORKFLOW}}` / `{{REPORT_PRUNE_WORKFLOW}}` / `{{PROD_SMOKE_WORKFLOW}}` | The workflows that refresh shard timings, prune published reports, and run the post-deploy production smoke. |
+| `{{FULL_REGRESSION_LABEL}}` / `{{LEGACY_RUNNER_FULL_LABEL}}` / `{{RELEASE_TESTS_LABEL}}` / `{{INTEGRATION_LABEL}}` | PR labels that request a full Playwright run, a full run of the legacy runner, the release suite, and the integration project. |
+| `{{TIMINGS_FILE}}` / `{{SHARD_SPLITTER_SCRIPT}}` / `{{TIMINGS_MERGE_SCRIPT}}` / `{{DIFF_TAGS_SCRIPT}}` | The per-spec timings file; the scripts that bin-pack specs into shards, merge per-shard timings, and map a PR diff to feature tags. |
+| `{{PROD_SMOKE_CONFIG}}` | The separate Playwright config for the production smoke. |
 | `{{REPORT_HOSTING}}` | Where merged HTML reports are published. |
 | `{{LABEL_POLICY}}` | PR labels that gate or skip test runs. |
 | `{{PROD_SMOKE_WANTED}}` / `{{PROD_SMOKE_TARGET}}` / `{{CANARY_IDS}}` | Whether a post-deploy production smoke exists; its target; its canary data. |

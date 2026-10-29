@@ -108,8 +108,7 @@ helper reads its transaction log over the mock's **admin API**. To see what it r
 `curl -s "http://localhost:{{VENDOR_A_MOCK_PORT}}/<admin-log-path>?page=1&limit=100"`. The mock is not
 started locally by default: start it per starting-the-e2e-backend and export `{{VENDOR_A_MOCK_URL_ENV}}`,
 or read its log from the CI run's artifacts. If the failure traces to a missing/wrong mock route or a
-hardcoded value that should be echoed, the fix belongs in the mock via `editing-backend-seeds-and-mocks`
-(not included in this kit): dynamic responses, routes from the vendor's own API docs.
+hardcoded value that should be echoed, the fix belongs in the mock via `editing-backend-seeds-and-mocks`: dynamic responses, routes from the vendor's own API docs.
 
 **VCR cassettes (a different mechanism from the mock server).** Specs that replay recorded HTTP via VCR
 fail with `VCR::Errors::UnhandledHTTPRequestError` in the backend log - a backend-env issue, not an app

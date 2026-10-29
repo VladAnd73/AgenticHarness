@@ -75,8 +75,7 @@ process, say so in your report.
 3. Login and most specs do **not** touch external services or the vendor-A mock. Only vendor-A-path
    specs need the mock and its env.
 
-> Editing a mock to make a spec pass? Do it via `editing-backend-seeds-and-mocks` (not included in this
-> kit): routes come from the vendor's own API docs, not imagination, and responses must be dynamic
+> Editing a mock to make a spec pass? Do it via `editing-backend-seeds-and-mocks`: routes come from the vendor's own API docs, not imagination, and responses must be dynamic
 > (echo request data, generated ids, computed dates).
 
 ## Bring up Vite (backend first)

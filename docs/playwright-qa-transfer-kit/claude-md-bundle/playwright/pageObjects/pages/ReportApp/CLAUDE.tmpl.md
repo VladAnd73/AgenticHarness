@@ -42,7 +42,7 @@ against `{{PROD_SMOKE_TARGET}}` using `{{CANARY_IDS}}`.
   may show only a toast, and only this check catches it.
 - **There is no click method on purpose.** Anything that would trigger live third-party calls or a
   server-side refresh must never be driven against production.
-- A section that only renders for some record variants fails its validator by design when
+- A section that only renders for some record kinds fails its validator by design when
   pointed at a canary outside that set; pick canaries that render every section.
 
 ## Cross-links
