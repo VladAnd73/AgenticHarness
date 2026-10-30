@@ -45,8 +45,8 @@ const (
 	// SporeOwner and SporeRepo identify the github repo backing the
 	// bundled flake's `spore` input. Used to build SporeFlakeURL and
 	// the commits API URL for the push-first guard.
-	SporeOwner = "marketertechnologies"
-	SporeRepo  = "spore"
+	SporeOwner = "VladAnd73"
+	SporeRepo  = "AgenticHarness"
 
 	// SporeFlakeURL is the bare github URL the bundled flake declares
 	// as its `spore` input. PinBundledSpore overrides this input at
