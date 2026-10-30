@@ -138,8 +138,10 @@ single-disk GPT layout (1M BIOS-boot, 512M ESP at `/boot`, ext4 at
 `/`). nixpkgs tracks `nixos-unstable`, disko follows nixpkgs.
 
 The hostname and authorized-keys list are written into a generated
-`local.nix` that lives only inside the temp staging directory; the
-spore tree itself never holds operator-specific state. See
+`local.nix` inside the temp staging directory; the spore tree itself
+never holds operator-specific state. The staged flake is copied to the
+host's `/etc/nixos`, so rebuilds on the box use
+`nixos-rebuild switch --flake /etc/nixos`. See
 `bootstrap/flake/README.md` for the full shape and the override
 guidance.
 

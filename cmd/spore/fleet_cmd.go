@@ -119,6 +119,9 @@ func runFleetReconcile(args []string) error {
 	}
 	fmt.Printf("fleet: active=%d spawned=%d kept=%d reaped=%d skipped=%d\n",
 		len(res.Active), len(res.Spawned), len(res.Kept), len(res.Reaped), len(res.Skipped))
+	if res.CoordinatorSpawned {
+		fmt.Println("  spawned coordinator")
+	}
 	if len(res.Spawned) > 0 {
 		fmt.Printf("  spawned: %s\n", strings.Join(res.Spawned, ", "))
 	}

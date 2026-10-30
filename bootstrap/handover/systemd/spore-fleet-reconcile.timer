@@ -1,6 +1,6 @@
 [Unit]
 Description=spore fleet reconcile, every minute
-Documentation=https://github.com/versality/spore
+Documentation=https://github.com/VladAnd73/AgenticHarness
 
 [Timer]
 # Fire once a minute after boot. Reconcile is idempotent and finishes

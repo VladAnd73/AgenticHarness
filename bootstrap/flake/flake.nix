@@ -14,16 +14,16 @@
 
   # spore is pinned to the local CLI's HEAD commit by `spore infect`'s
   # Stage() at infect time (`nix flake lock --override-input spore
-  # github:marketertechnologies/spore/<rev>`), so the freshly-installed
+  # github:VladAnd73/AgenticHarness/<rev>`), so the freshly-installed
   # system runs the same spore the operator built locally. The bare
   # `github:` URL here is only the resolution path for the override;
   # the static lock entry is rewritten before nixos-anywhere reads it.
-  inputs.spore.url = "github:marketertechnologies/spore";
+  inputs.spore.url = "github:VladAnd73/AgenticHarness";
 
   outputs =
     inputs@{ nixpkgs, disko, home-manager, spore, ... }:
-    {
-      nixosConfigurations.spore-bootstrap = nixpkgs.lib.nixosSystem {
+    let
+      system = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = { inherit inputs; };
         modules = [
@@ -33,5 +33,15 @@
           ./configuration.nix
         ];
       };
+      # `nixos-rebuild switch --flake /etc/nixos` with no `#attr` looks
+      # up the running hostname, so expose the config under it too.
+      # Read it from the evaluated config, not by importing local.nix:
+      # that also works when local.nix is a module function.
+      hostName = system.config.networking.hostName;
+    in
+    {
+      nixosConfigurations =
+        { spore-bootstrap = system; }
+        // nixpkgs.lib.optionalAttrs (hostName != "") { ${hostName} = system; };
     };
 }

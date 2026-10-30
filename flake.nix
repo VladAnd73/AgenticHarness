@@ -30,14 +30,16 @@
       # the stdlib advisories govulncheck flags as reachable: 1.26.5 for
       # GO-2026-5856 (crypto/tls), and 1.26.6 for GO-2026-6218 (net/url),
       # GO-2026-6090 (crypto/tls), GO-2026-5972 (encoding/asn1) and
-      # GO-2026-5026 (net/http). Keep the spore-toolchain check's `min`
-      # in step with this version.
+      # GO-2026-5026 (net/http); 1.26.9 for the net/http, net/textproto
+      # and crypto/tls batch (GO-2026-6603, 6605, 6607-6613, 6617); 1.26.10 for
+      # GO-2026-6809 (crypto/x509). Keep the spore-toolchain check's
+      # `min` in step with this version.
       goToolchainOverlay = final: prev: {
         go = prev.go.overrideAttrs (_old: {
-          version = "1.26.7";
+          version = "1.26.10";
           src = prev.fetchurl {
-            url = "https://go.dev/dl/go1.26.7.src.tar.gz";
-            hash = "sha256-DtJOrHVRBQhbif6cq8J0K5GgrXuUtZ0602SRjryJVq0=";
+            url = "https://go.dev/dl/go1.26.10.src.tar.gz";
+            hash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
           };
         });
       };
@@ -81,7 +83,7 @@
             nativeCheckInputs = [ pkgs.git pkgs.tmux ];
             meta = {
               description = "Drop-in harness template for LLM-coding agents.";
-              homepage = "https://github.com/versality/spore";
+              homepage = "https://github.com/VladAnd73/AgenticHarness";
               license = pkgs.lib.licenses.asl20;
               mainProgram = "spore";
               platforms = pkgs.lib.platforms.unix;
@@ -105,6 +107,7 @@
             install -m 0755 $src/spore-with-secrets.sh       $out/bin/spore-with-secrets
             install -m 0755 $src/hooks/block-bg-bash.pl      $out/share/spore/hooks/block-bg-bash.pl
             install -m 0755 $src/hooks/load-state-md.pl      $out/share/spore/hooks/load-state-md.pl
+            install -m 0755 $src/hooks/guard-tmux.pl         $out/share/spore/hooks/guard-tmux.pl
             install -m 0644 $src/settings.json               $out/share/spore/settings.json
             install -m 0644 $src/systemd/spore-fleet-reconcile.service $out/share/spore/systemd/spore-fleet-reconcile.service
             install -m 0644 $src/systemd/spore-fleet-reconcile.timer   $out/share/spore/systemd/spore-fleet-reconcile.timer
@@ -207,7 +210,7 @@
             '';
             go-test = pkgs.runCommand "spore-go-test"
               {
-                nativeBuildInputs = [ pkgs.go pkgs.git pkgs.just ];
+                nativeBuildInputs = [ pkgs.go pkgs.git pkgs.just pkgs.perl ];
               } ''
               cp -r ${./.}/. ./src
               cd src
@@ -249,7 +252,7 @@
               {
                 nativeBuildInputs = [ pkgs.go ];
               } ''
-              min="1.26.6"
+              min="1.26.10"
               ver="$(go version ${spore}/bin/spore \
                 | grep -oE 'go[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^go//')"
               echo "artifact go toolchain: $ver (require >= $min)"
@@ -292,8 +295,16 @@
               fi
               touch $out
             '';
-            shims-layout = pkgs.runCommand "spore-shims-layout" { } ''
+            shims-layout = pkgs.runCommand "spore-shims-layout" { nativeBuildInputs = [ pkgs.jq ]; } ''
               fail=0
+              # Every hook script settings.json runs must ship executable.
+              for h in $(jq -r '.. | .command? // empty' ${shims}/share/spore/settings.json \
+                  | grep -o '/\.claude/hooks/[^ ]*' | sed 's|.*/||'); do
+                if [ ! -x "${shims}/share/spore/hooks/$h" ]; then
+                  echo "settings.json runs hooks/$h, which the shims package does not ship"
+                  fail=1
+                fi
+              done
               for f in \
                 bin/spore-attach \
                 bin/spore-coordinator-launch \

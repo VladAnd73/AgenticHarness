@@ -4,7 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	spore "github.com/versality/spore"
 )
 
 func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
@@ -19,13 +23,17 @@ func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
 
 	session := CoordinatorSessionName(dirs.project)
 
-	if _, err := Reconcile(Config{
+	res, err := Reconcile(Config{
 		TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Reconcile pass 1: %v", err)
 	}
 	if !hasSession(session) {
 		t.Fatalf("expected coordinator session %q after first reconcile", session)
+	}
+	if !res.CoordinatorSpawned {
+		t.Errorf("pass 1 result does not report the coordinator spawn")
 	}
 
 	// Idempotency: a second reconcile must not double-spawn. Capture
@@ -35,10 +43,14 @@ func TestReconcileSpawnsCoordinatorSingleton(t *testing.T) {
 		t.Fatalf("sessionCreated #1: %v", err)
 	}
 
-	if _, err := Reconcile(Config{
+	res, err = Reconcile(Config{
 		TasksDir: dirs.tasks, ProjectRoot: dirs.project, MaxWorkers: 3,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Reconcile pass 2: %v", err)
+	}
+	if res.CoordinatorSpawned {
+		t.Errorf("pass 2 reports a coordinator spawn; the session was kept")
 	}
 	if !hasSession(session) {
 		t.Fatalf("expected coordinator session %q after second reconcile", session)
@@ -261,4 +273,144 @@ func sessionCreated(name string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// waitForFile polls path until it holds bytes or ~5s pass.
+func waitForFile(path string) []byte {
+	for i := 0; i < 50; i++ {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+			return b
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
+}
+
+// A downstream SPORE_COORDINATOR_AGENT wrapper may reject arguments.
+// Before the bundled-role fallback, a project without role.md exec'd it
+// with none; it must still get none.
+func TestEnsureCoordinatorBundledRoleGivesACustomAgentNoArgs(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(CoordinatorRoleEnv, "")
+
+	out := t.TempDir()
+	agent := filepath.Join(t.TempDir(), "strict-launcher")
+	script := "#!/bin/sh\necho $# > " + out + "/argc\n" +
+		"printf '%s' \"$SPORE_COORDINATOR_ROLE\" > " + out + "/role\n" +
+		"[ $# -eq 0 ] || exit 64\nexec sleep 30\n"
+	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPORE_COORDINATOR_AGENT", agent)
+	t.Cleanup(func() { killSporeSessions(dirs.project) })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+	if got := strings.TrimSpace(string(waitForFile(filepath.Join(out, "argc")))); got != "0" {
+		t.Fatalf("custom agent got %q args, want 0", got)
+	}
+	rolePath := string(waitForFile(filepath.Join(out, "role")))
+	role, err := os.ReadFile(rolePath)
+	if err != nil || string(role) != string(spore.BundledCoordinatorRole) {
+		t.Fatalf("SPORE_COORDINATOR_ROLE=%q does not hold the bundled role: %v", rolePath, err)
+	}
+	if !CoordinatorAlive(dirs.project) {
+		t.Fatal("coordinator session did not survive")
+	}
+}
+
+// Bare claude has no launcher to read $SPORE_COORDINATOR_ROLE, so it
+// still gets the bundled role as its first message.
+func TestEnsureCoordinatorBundledRoleIsClaudesFirstMessage(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(CoordinatorRoleEnv, "")
+
+	got := filepath.Join(t.TempDir(), "first-message")
+	agent := filepath.Join(t.TempDir(), "claude")
+	script := "#!/bin/sh\neval \"last=\\${$#}\"\nprintf '%s' \"$last\" > " + got + "\nexec sleep 30\n"
+	if err := os.WriteFile(agent, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPORE_COORDINATOR_AGENT", agent+" --dangerously-skip-permissions")
+	t.Cleanup(func() { killSporeSessions(dirs.project) })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+	first := waitForFile(got)
+	want := strings.TrimRight(string(spore.BundledCoordinatorRole), "\n")
+	if string(first) != want {
+		t.Fatalf("agent first message = %d bytes, want the bundled role (%d bytes)", len(first), len(want))
+	}
+}
+
+// The spore user's $SHELL is spore-attach, and systemd hands it to the
+// reconciler. A tmux server the reconciler starts must not take it as
+// default-shell, or the coordinator's command never runs.
+func TestEnsureCoordinatorStartsServerWithARealShell(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	tmpdir, err := os.MkdirTemp("", "sfs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	t.Setenv("TMUX_TMPDIR", tmpdir)
+	loginShell := filepath.Join(t.TempDir(), "spore-attach")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", loginShell)
+	t.Setenv("SPORE_COORDINATOR_AGENT", "sleep 30")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-server").Run() })
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
+}
+
+// A host whose tmux server already runs with spore-attach as its
+// default-shell must still get a coordinator: setting SHELL on the
+// client only matters when the server starts.
+func TestEnsureCoordinatorSpawnsOnAServerWithABrokenDefaultShell(t *testing.T) {
+	requireToolchain(t)
+
+	dirs := newTestDirs(t)
+	gitInit(t, dirs.project)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	tmpdir, err := os.MkdirTemp("", "sfb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	t.Setenv("TMUX_TMPDIR", tmpdir)
+	loginShell := filepath.Join(t.TempDir(), "spore-attach")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := exec.Command("tmux", "-L", testTmuxSocket, "-f", "/dev/null", "new-session", "-d", "-s", "keepalive", "sleep", "600")
+	start.Env = append(os.Environ(), "SHELL="+loginShell)
+	if out, err := start.CombinedOutput(); err != nil {
+		t.Fatalf("start poisoned server: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", testTmuxSocket, "kill-server").Run() })
+	t.Setenv("SPORE_COORDINATOR_AGENT", "sleep 30")
+
+	if _, spawned, err := EnsureCoordinator(dirs.project); err != nil || !spawned {
+		t.Fatalf("EnsureCoordinator: spawned=%v err=%v", spawned, err)
+	}
 }

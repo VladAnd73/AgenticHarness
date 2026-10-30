@@ -45,8 +45,8 @@ const (
 	// SporeOwner and SporeRepo identify the github repo backing the
 	// bundled flake's `spore` input. Used to build SporeFlakeURL and
 	// the commits API URL for the push-first guard.
-	SporeOwner = "marketertechnologies"
-	SporeRepo  = "spore"
+	SporeOwner = "VladAnd73"
+	SporeRepo  = "AgenticHarness"
 
 	// SporeFlakeURL is the bare github URL the bundled flake declares
 	// as its `spore` input. PinBundledSpore overrides this input at
@@ -379,7 +379,16 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 	}
 	defer cleanup()
 
-	if err := runner(ctx, Argv(c, flakeRef), stdout, stderr); err != nil {
+	argv := Argv(c, flakeRef)
+	if c.Flake == "" {
+		extra, err := stageEtcNixos(flakeRef)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(extra)
+		argv = append(argv, "--extra-files", extra)
+	}
+	if err := runner(ctx, argv, stdout, stderr); err != nil {
 		return fmt.Errorf("nixos-anywhere: %w", err)
 	}
 
@@ -393,6 +402,26 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 		}
 	}
 	return nil
+}
+
+// stageEtcNixos lays the staged bundled flake out as <tmp>/etc/nixos
+// for nixos-anywhere's --extra-files, so the installed host keeps the
+// flake it was built from and `nixos-rebuild switch --flake /etc/nixos`
+// works on the box with no hand-built copy.
+func stageEtcNixos(flakeRef string) (string, error) {
+	src := strings.TrimPrefix(flakeRef, "path:")
+	if i := strings.Index(src, "#"); i >= 0 {
+		src = src[:i]
+	}
+	extra, err := os.MkdirTemp("", "spore-extra-files-")
+	if err != nil {
+		return "", err
+	}
+	if err := copyEmbedTree(os.DirFS(src), ".", filepath.Join(extra, "etc", "nixos")); err != nil {
+		_ = os.RemoveAll(extra)
+		return "", err
+	}
+	return extra, nil
 }
 
 func runWithRetry(
@@ -578,6 +607,7 @@ func InstallHandoverScript(c Config, projectBase, remoteTmp string) string {
 		"install -d -o spore -g users -m 0755 /home/spore/.claude/hooks /home/spore/.local/state/spore",
 		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/block-bg-bash.pl") + " /home/spore/.claude/hooks/block-bg-bash.pl",
 		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/load-state-md.pl") + " /home/spore/.claude/hooks/load-state-md.pl",
+		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/guard-tmux.pl") + " /home/spore/.claude/hooks/guard-tmux.pl",
 		"install -m 0644 " + shellSingleQuote(remoteTmp+"/settings.json") + " /home/spore/.claude/settings.json",
 		"cat > /etc/spore/coordinator.env <<'EOF'\n" + coordinatorEnv + "EOF",
 		"rm -rf " + shellSingleQuote(projectRoot),

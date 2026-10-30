@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	spore "github.com/versality/spore"
 	"github.com/versality/spore/internal/agentenv"
 	"github.com/versality/spore/internal/task"
 )
@@ -74,7 +75,31 @@ func CoordinatorRolePath(projectRoot string) string {
 		}
 		return filepath.Join(projectRoot, cfg.Brief)
 	}
+	return defaultRolePath(projectRoot)
+}
+
+func defaultRolePath(projectRoot string) string {
 	return filepath.Join(projectRoot, "bootstrap", "coordinator", "role.md")
+}
+
+func nonEmptyFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+// writeBundledRole drops the role embedded in this binary into dir so
+// a project without its own role file still boots a seeded
+// coordinator. Rewritten on every spawn so a spore upgrade reaches the
+// next coordinator without a manual copy.
+func writeBundledRole(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "bundled-role.md")
+	if err := os.WriteFile(path, spore.BundledCoordinatorRole, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // EnsureCoordinator spawns the coordinator tmux session for projectRoot
@@ -84,11 +109,14 @@ func CoordinatorRolePath(projectRoot string) string {
 // session env. The session's command is a small shell snippet that
 // passes the role file's contents as the agent's first positional
 // arg when the file is readable and non-empty (so a default
-// claude-code agent boots with the role as its first user message),
-// and falls back to spawning the agent bare otherwise (so test agents
-// like `sleep 30` and consumers without a role file installed are
-// unaffected). Returns the session name and whether a spawn actually
-// happened.
+// claude-code agent boots with the role as its first user message).
+// When the default in-tree role file is missing, the role embedded in
+// the binary is written out and SPORE_COORDINATOR_ROLE points at it,
+// but only a claude or codex agent also gets it as an argument: a
+// custom launcher saw no arguments here before the fallback existed and
+// may reject them. An explicit override that points at a missing file
+// spawns the agent bare. Returns the session name and whether a spawn
+// actually happened.
 func EnsureCoordinator(projectRoot string) (string, bool, error) {
 	session := CoordinatorSessionName(projectRoot)
 	if hasSession(session) {
@@ -124,9 +152,18 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 		return "", false, err
 	}
 
-	cmd := coordinatorShellCommand(agent, rolePath)
+	passRole := true
+	if rolePath == defaultRolePath(projectRoot) && !nonEmptyFile(rolePath) {
+		rolePath, err = writeBundledRole(filepath.Join(coordinatorState, project))
+		if err != nil {
+			return "", false, err
+		}
+		passRole = agentTakesPrompt(agent)
+	}
+
+	cmd := coordinatorShellCommand(agent, rolePath, passRole)
 	args := []string{
-		"new-session", "-d",
+		"-d",
 		"-s", session,
 		"-c", projectRoot,
 		"-e", "SPORE_TASK_SLUG=" + CoordinatorSlug,
@@ -143,8 +180,7 @@ func EnsureCoordinator(projectRoot string) (string, bool, error) {
 		args = append(args, "-e", "SPORE_COORDINATOR_MODEL="+v)
 	}
 	args = append(args, agentenv.TmuxArgs(projectEnv)...)
-	args = append(args, cmd)
-	out, err := exec.Command("tmux", args...).CombinedOutput()
+	out, err := task.TmuxNewSession(args, cmd).CombinedOutput()
 	if err != nil {
 		return "", false, fmt.Errorf("tmux new-session: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -223,12 +259,29 @@ func driverToBinary(driver string) string {
 // string; the agent token is intentionally left unquoted so callers
 // can pass space-bearing values (e.g. SPORE_AGENT_BINARY="sleep 30")
 // the same way worker spawn does.
-func coordinatorShellCommand(agent, rolePath string) string {
+func coordinatorShellCommand(agent, rolePath string, passRole bool) string {
+	if !passRole {
+		return "exec " + agent
+	}
 	q := shellSingleQuote(rolePath)
 	return fmt.Sprintf(
 		`if [ -r %[1]s ] && [ -s %[1]s ]; then exec %[2]s "$(cat %[1]s)"; else exec %[2]s; fi`,
 		q, agent,
 	)
+}
+
+// agentTakesPrompt reports whether agent's binary is one spore knows
+// takes a positional first prompt. The agent string may carry flags.
+func agentTakesPrompt(agent string) bool {
+	fields := strings.Fields(agent)
+	if len(fields) == 0 {
+		return false
+	}
+	switch filepath.Base(fields[0]) {
+	case "claude", "codex":
+		return true
+	}
+	return false
 }
 
 // shellSingleQuote returns s wrapped in single quotes, with embedded

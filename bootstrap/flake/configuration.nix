@@ -22,57 +22,16 @@ let
   # Host project list. Written by `spore infect`'s Stage() at infect
   # time with a single entry derived from the operator's --repo, or
   # left as the bundled `{ }` default when infect runs without a repo.
-  # Edit-in-place post-install to add more repos; one-line append plus
-  # `sudo nixos-rebuild switch --flake /etc/nixos#spore-bootstrap`.
+  # `spore infect` ships this flake to /etc/nixos. To add a project,
+  # append a line there (`spore project new` prints it), then as root:
+  # `nixos-rebuild switch --flake /etc/nixos`.
   sporeProjects = import ./spore-projects.nix;
+  # The login shell runs the shipped spore-attach so there is one copy of
+  # the landing logic. sshd starts it with a minimal PATH, so pin the
+  # tools it calls.
   sporeAttach = pkgs.writeShellScriptBin "spore-attach" ''
-    set -e
-
-    if [ "''${1:-}" = "-c" ]; then
-      set -- ''${2:-}
-      shift
-    fi
-
-    mode="''${1:-coord}"
-
-    attach_pilot() {
-      name="''${1:-default}"
-      exec ${pkgs.tmux}/bin/tmux new-session -A -s "spore/pilot/$name" ${pkgs.bashInteractive}/bin/bash -l
-    }
-
-    case "$mode" in
-      coord)
-        sessions="$(${pkgs.tmux}/bin/tmux ls -F '#{session_name}' 2>/dev/null | ${pkgs.gnugrep}/bin/grep '/coordinator$' || true)"
-        n="$(printf '%s' "$sessions" | ${pkgs.gnugrep}/bin/grep -c . || true)"
-        case "$n" in
-          1)
-            exec ${pkgs.tmux}/bin/tmux attach -t "$sessions"
-            ;;
-      0)
-        printf '%s\n' \
-          "spore-attach: no coordinator session running on this host." \
-          "spore-attach: dropping into a default pilot session so you can recover." \
-          "spore-attach: if Claude or Codex is not logged in yet, run its login command here first." \
-          "spore-attach: then run: spore fleet enable && spore fleet reconcile" >&2
-        attach_pilot default
-        ;;
-          *)
-            echo "spore-attach: multiple coordinator sessions present:" >&2
-            printf '  %s\n' $sessions >&2
-            echo "spore-attach: ssh in as root to reconcile." >&2
-            exit 1
-            ;;
-        esac
-        ;;
-      pilot)
-        attach_pilot "''${2:-default}"
-        ;;
-      *)
-        echo "spore-attach: unknown mode: $mode" >&2
-        echo "usage: spore-attach [coord | pilot [<name>]]" >&2
-        exit 2
-        ;;
-    esac
+    export PATH=${lib.makeBinPath [ pkgs.tmux pkgs.gnugrep pkgs.bashInteractive ]}:$PATH
+    exec ${sporePkgs.shims}/bin/spore-attach "$@"
   '';
 in
 {
@@ -81,6 +40,9 @@ in
     (modulesPath + "/profiles/qemu-guest.nix")
     ./disk-config.nix
   ] ++ lib.optional (builtins.pathExists ./local.nix) ./local.nix;
+
+  # Rebuilds on the box and agents both run flake commands.
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   nixpkgs.config.allowUnfreePredicate =
     pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
@@ -99,16 +61,13 @@ in
 
   # Operator-facing account. No shell prompt, no sudo, no wheel. SSH
   # in as spore -> the login shell (spore-attach) attaches you to a
-  # tmux session and exits when you detach.
-  #
-  # Two landing modes, picked by the per-key authorized_keys command:
-  # - bare key (no command=): primary-operator path. Attaches to the
-  #   singleton coordinator session; falls back to a default pilot
-  #   session if the coordinator is down (so SSH never bounces).
-  # - command="/usr/local/bin/spore-attach pilot <name>": gives that
-  #   key its own private session at spore/pilot/<name>. Use this for
-  #   secondary pilots so they neither share a pane with the
-  #   coordinator nor with each other.
+  # tmux session and exits when you detach:
+  # - `ssh -t spore@<host>`: the coordinator when exactly one runs,
+  #   else the default pilot shell with the coordinators listed.
+  # - `ssh -t spore@<host> <project>`: that project's coordinator.
+  # - `ssh -t spore@<host> coord`: a menu of running coordinators.
+  # - command="/usr/local/bin/spore-attach pilot <name>" on a key in
+  #   authorized_keys: that key always lands in spore/pilot/<name>.
   #
   # Authorized keys come from local.nix. Root SSH stays open for
   # emergency reconcile.
@@ -124,6 +83,7 @@ in
     claudeCode
   ] ++ (with pkgs; [
     codex
+    gh
     git
     rsync
     curl

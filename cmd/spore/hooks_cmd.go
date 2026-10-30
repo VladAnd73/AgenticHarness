@@ -7,7 +7,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/versality/spore/internal/fleet"
 	"github.com/versality/spore/internal/hooks"
@@ -173,6 +176,19 @@ func runHooksWatchInbox(args []string) int {
 	}
 	args = rest
 
+	// A newer watcher of the same session sends SIGTERM. Exit 0 so
+	// claude-code does not treat the handover as a wake or an error,
+	// unless a batch is already claimed: then finish and exit 2.
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
+	go func() {
+		<-term
+		if hooks.MayExitOnSupersede() {
+			hooks.ReleaseWatcher()
+			os.Exit(0)
+		}
+	}()
+
 	var err error
 	switch len(args) {
 	case 0:
@@ -184,9 +200,9 @@ func runHooksWatchInbox(args []string) int {
 			// the hook produces no stderr noise.
 			return 0
 		}
-		err = hooks.WatchInboxAtDirs(dirs)
+		err = hooks.WatchInboxForSession(hooks.WatcherKey(stopHookSessionID(os.Stdin)), dirs)
 	case 1:
-		err = hooks.WatchInbox(args[0])
+		err = hooks.WatchInboxSlugForSession(hooks.WatcherKey(stopHookSessionID(os.Stdin)), args[0])
 	default:
 		fmt.Fprintln(os.Stderr, "usage: spore hooks watch-inbox [slug]")
 		return 2
@@ -298,4 +314,27 @@ func repoRoot() (string, error) {
 		return "", fmt.Errorf("git rev-parse: %w (%s)", err, strings.TrimSpace(errBuf.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
+}
+
+// stopHookSessionID reads the Stop hook input from stdin and returns its
+// session_id. A terminal or a stdin that never closes yields "".
+func stopHookSessionID(f *os.File) string {
+	if fi, err := f.Stat(); err != nil || fi.Mode()&os.ModeCharDevice != 0 {
+		return ""
+	}
+	got := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(io.LimitReader(f, 1<<20))
+		got <- b
+	}()
+	select {
+	case b := <-got:
+		var req hooks.Request
+		if json.Unmarshal(b, &req) != nil {
+			return ""
+		}
+		return req.SessionID
+	case <-time.After(2 * time.Second):
+		return ""
+	}
 }

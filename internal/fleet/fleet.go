@@ -47,6 +47,10 @@ type Result struct {
 	// case; the sessions already running (if any) are NOT reaped.
 	Disabled bool
 
+	// CoordinatorSpawned is true when this pass started the coordinator
+	// session. The coordinator is never in the worker slug lists.
+	CoordinatorSpawned bool
+
 	Active  []string
 	Spawned []string
 	Reaped  []string
@@ -104,7 +108,8 @@ func Reconcile(cfg Config) (Result, error) {
 	// persisted. The error is still returned to the caller at the end,
 	// so nothing that acts on it today stops acting on it.
 	var coordinatorErr error
-	if _, _, err := EnsureCoordinator(cfg.ProjectRoot); err != nil {
+	_, coordinatorSpawned, err := EnsureCoordinator(cfg.ProjectRoot)
+	if err != nil {
 		coordinatorErr = fmt.Errorf("coordinator: %w", err)
 		fmt.Fprintln(os.Stderr, "fleet:", coordinatorErr)
 	}
@@ -148,7 +153,7 @@ func Reconcile(cfg Config) (Result, error) {
 		runningSet[s] = true
 	}
 
-	res := Result{Matter: matterRes, InboxWatchdog: watchdogRes}
+	res := Result{CoordinatorSpawned: coordinatorSpawned, Matter: matterRes, InboxWatchdog: watchdogRes}
 
 	// Reap first so freed slots count toward the cap on spawn.
 	// Sessions for tasks the operator paused or blocked are kept

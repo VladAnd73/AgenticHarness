@@ -23,7 +23,13 @@ var ErrWake = errors.New("inbox drained")
 // files to inbox/read/, and returns ErrWake when files were drained.
 // Returns nil on timeout (no files), or a real error on failure.
 func WatchInbox(slug string) error {
-	return watchInboxAt(workerInbox(slug), os.Stdout, os.Stderr, defaultWatchOpts())
+	return WatchInboxAtDirs([]string{workerInbox(slug)})
+}
+
+// WatchInboxSlugForSession is WatchInbox with the singleton of
+// WatchInboxForSession.
+func WatchInboxSlugForSession(key, slug string) error {
+	return WatchInboxForSession(key, []string{workerInbox(slug)})
 }
 
 // WatchInboxAt is the env-driven Stop-hook entry point. It targets
@@ -32,7 +38,7 @@ func WatchInbox(slug string) error {
 // $SPORE_TASK_INBOX, which the consumer harness sets per spawn (rower:
 // $WT_STATE/<slug>/inbox; coordinator: $SKYHELM_STATE_DIR/<project>/inbox).
 func WatchInboxAt(inboxDir string) error {
-	return watchInboxAt(inboxDir, os.Stdout, os.Stderr, defaultWatchOpts())
+	return WatchInboxAtDirs([]string{inboxDir})
 }
 
 // WatchInboxAtDirs is the multi-dir env-driven Stop-hook entry point. A
@@ -42,6 +48,19 @@ func WatchInboxAt(inboxDir string) error {
 // (task.InboxDir("coordinator")), so both worker/CLI tells and
 // interactive-session pokes wake an idle coordinator.
 func WatchInboxAtDirs(inboxDirs []string) error {
+	return WatchInboxForSession("", inboxDirs)
+}
+
+// WatchInboxForSession is WatchInboxAtDirs for the Stop hook of the
+// agent session `key` (see WatcherKey); only an older watcher of the
+// same session is superseded.
+func WatchInboxForSession(key string, inboxDirs []string) error {
+	if len(inboxDirs) > 0 {
+		if err := ensureInbox(inboxDirs[0]); err != nil {
+			return err
+		}
+		defer supersedeWatcher(inboxDirs[0], key)()
+	}
 	return watchInboxAtDirs(inboxDirs, os.Stdout, os.Stderr, defaultWatchOpts())
 }
 
@@ -114,31 +133,39 @@ func watchInboxAtDirs(inboxDirs []string, stdout, stderr io.Writer, opts watchOp
 	}
 	defer w.Close()
 
-	woke, _ := w.Wait()
-	if woke {
-		opts.sleep(opts.settle)
+	// Not every event is a tell: another session's watcher writes its
+	// pid file here too. Keep waiting until something is claimed.
+	deadline := time.Now().Add(opts.timeout)
+	for {
+		woke, _ := w.Wait()
+		if woke {
+			opts.sleep(opts.settle)
+		}
+		if n, err := drainAll(inboxDirs, stdout); err != nil {
+			return err
+		} else if n > 0 {
+			return ErrWake
+		}
+		if !woke || !time.Now().Before(deadline) {
+			return nil
+		}
 	}
-
-	if n, err := drainAll(inboxDirs, stdout); err != nil {
-		return err
-	} else if n > 0 {
-		return ErrWake
-	}
-	return nil
 }
 
 // drainAll drains each dir in turn (each keeps its own read/ subdir) and
 // returns the total number of files claimed across all of them.
 func drainAll(inboxDirs []string, stdout io.Writer) (int, error) {
-	total := 0
-	for _, dir := range inboxDirs {
-		n, err := drainInbox(dir, stdout)
-		if err != nil {
-			return total, err
+	return gate.claim(func() (int, error) {
+		total := 0
+		for _, dir := range inboxDirs {
+			n, err := drainInbox(dir, stdout)
+			if err != nil {
+				return total, err
+			}
+			total += n
 		}
-		total += n
-	}
-	return total, nil
+		return total, nil
+	})
 }
 
 // drainInbox lists *.json at the top level of inboxDir, atomically
@@ -253,7 +280,7 @@ func wtStateDir() string {
 }
 
 func ensureInbox(inbox string) error {
-	for _, sub := range []string{"", ".tmp", "read", pendingSubdir} {
+	for _, sub := range []string{"", ".tmp", "read", pendingSubdir, watcherDir} {
 		if err := os.MkdirAll(filepath.Join(inbox, sub), 0o755); err != nil {
 			return err
 		}
